@@ -1,0 +1,107 @@
+name: Build
+
+on:
+  workflow_call:
+    inputs:
+      release:
+        required: true
+        type: boolean
+
+    
+jobs:
+  build:
+    name: Build Cross-Platform Binaries
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Define the valid build targets. This is the single source of truth.
+        include:
+          - os: windows
+            arch: amd64
+          - os: windows
+            arch: 386
+          - os: windows
+            arch: arm64
+          - os: linux
+            arch: amd64
+          - os: linux
+            arch: 386
+          - os: linux
+            arch: arm
+          - os: linux
+            arch: arm64
+          - os: darwin # macOS
+            arch: amd64
+          - os: darwin # macOS
+            arch: arm64
+          
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+          cache: true # Enable Go dependency caching for speed
+
+      
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        if: ${{inputs.release == true}}
+        with:
+          node-version: '26'
+
+      - name: Install semantic-release dependencies
+        if: ${{inputs.release == true}}
+        run: |
+          npm i --save-dev conventional-changelog-conventionalcommits
+          npm install --save-dev semantic-release @semantic-release/changelog @semantic-release/git @semantic-release/github @semantic-release/exec @semantic-release/gitlab @semantic-release/npm @semantic-release/release-notes-generator @semantic-release/git @semantic-release/changelog @semantic-release/exec 
+  
+      - name: Run semantic-release (Update Version)
+        if: ${{inputs.release == true}}
+        run: |
+          cp ./.github/.releaserc.js .
+          VERSION_SPACES=$(npx semantic-release --dry-run | grep -oP 'Published release \K.*? ')
+          VERSION="${VERSION_SPACES// /}" 
+          echo $VERSION
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        id: version_release
+        continue-on-error: true
+      
+      - name: Set version for CI
+        if: ${{inputs.release != true}}
+        run: |
+          VERSION="CI-RUN-${{ github.run_number }}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+        id: version_ci
+      
+      - name: Build Binary
+        id: build
+        env:
+          GOOS: ${{ matrix.os }}
+          GOARCH: ${{ matrix.arch }}
+          VERSION: ${{ steps.version_release.outputs.version || steps.version_ci.outputs.version }}
+        run: |
+          EXT=""
+          if [ "${{ matrix.os }}" = "windows" ]; then
+            EXT=".exe"
+          fi
+          # A clean, predictable artifact name
+          OUTPUT_NAME="senpaiscanner-${{ matrix.os }}-${{ matrix.arch }}${EXT}"
+
+          make "build-${{matrix.os}}-${{matrix.arch}}"
+
+          # Output the path for the upload step
+          echo "artifact_path=dist/${OUTPUT_NAME}" >> "$GITHUB_OUTPUT"
+          echo "artifact_name=${OUTPUT_NAME}.bin" >> "$GITHUB_OUTPUT"
+
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.build.outputs.artifact_name }} # All binaries will be uploaded under this single artifact name
+          path: ${{ steps.build.outputs.artifact_path }}

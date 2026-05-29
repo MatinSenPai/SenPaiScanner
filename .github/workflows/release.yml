@@ -1,39 +1,44 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - "v*"
+  workflow_call:
 
-permissions:
-  contents: write
-  packages: write
-  id-token: write
 
 jobs:
   release:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
+      - name: Checkout code
+        uses: actions/checkout@v3
 
-      - name: Install cosign
-        uses: sigstore/cosign-installer@v3
 
-      - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@v6
+      - name: Download Build Artifacts
+        uses: actions/download-artifact@v4
         with:
-          distribution: goreleaser
-          version: latest
-          args: release --clean
+          path: ./dist
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '26'
+
+      - name: Install semantic-release dependencies
+        run: |
+          npm i --save-dev conventional-changelog-conventionalcommits
+          npm install --save-dev semantic-release @semantic-release/changelog @semantic-release/git @semantic-release/github @semantic-release/exec @semantic-release/gitlab @semantic-release/npm @semantic-release/release-notes-generator @semantic-release/git @semantic-release/changelog @semantic-release/exec 
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          COSIGN_EXPERIMENTAL: "true"
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Move Binary files to root of dist
+        run: |
+          find dist -mindepth 2 -type f -exec mv -t dist {} +
+          find dist -mindepth 1 -type d -exec rm -r {} +
+      
+      - name: Run semantic-release
+        run: | 
+          cp ./.github/.releaserc.js .
+          npx semantic-release --debug
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
