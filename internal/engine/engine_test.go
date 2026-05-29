@@ -26,10 +26,12 @@ func startTCPListener(t *testing.T) (port int, cleanup func()) {
 			if err != nil {
 				return // listener closed
 			}
-			go conn.Close() // keep Accept hot so the backlog never starves under burst
+			go func() {
+				_ = conn.Close() // keep Accept hot so the backlog never starves under burst
+			}()
 		}
 	}()
-	return ln.Addr().(*net.TCPAddr).Port, func() { ln.Close() }
+	return ln.Addr().(*net.TCPAddr).Port, func() { _ = ln.Close() }
 }
 
 func loopbackIPs(n int) []net.IP {

@@ -29,7 +29,7 @@ func TestLeaderboardSaveAndTopIPs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	ctx := context.Background()
 	if err := db.SaveResult(ctx, testResult("1.1.1.1", 512*1024)); err != nil {
@@ -53,7 +53,7 @@ func TestLeaderboardUpdatesLatestScore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	ctx := context.Background()
 	if err := db.SaveResult(ctx, testResult("1.1.1.1", 4*1024*1024)); err != nil {
@@ -92,7 +92,7 @@ func TestCheckpoints(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	ctx := context.Background()
 	if _, ok, err := db.LoadCheckpoint(ctx, "sweep"); err != nil || ok {

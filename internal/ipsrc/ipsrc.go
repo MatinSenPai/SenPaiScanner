@@ -235,7 +235,7 @@ func UpdateRanges(ctx context.Context) (v4, v6 []string, err error) {
 		if e != nil {
 			return nil, fmt.Errorf("fetch %s: %w", url, e)
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		if resp.StatusCode != http.StatusOK {
 			return nil, fmt.Errorf("unexpected status %d for %s", resp.StatusCode, url)
 		}

@@ -165,7 +165,11 @@ func TestSaveRangesAndOverride(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.Chdir(orig)
+	defer func() {
+		if err := os.Chdir(orig); err != nil {
+			t.Errorf("restore cwd: %v", err)
+		}
+	}()
 
 	if err := os.Chdir(t.TempDir()); err != nil {
 		t.Fatal(err)
@@ -191,7 +195,11 @@ func TestSaveRangesIgnoresEmptyAndInvalid(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.Chdir(orig)
+	defer func() {
+		if err := os.Chdir(orig); err != nil {
+			t.Errorf("restore cwd: %v", err)
+		}
+	}()
 
 	if err := os.Chdir(t.TempDir()); err != nil {
 		t.Fatal(err)

@@ -157,7 +157,7 @@ func runScan(cfg ScanConfig) {
 
 	leaderboard, _ := store.Open(store.DefaultPath())
 	if leaderboard != nil {
-		defer leaderboard.Close()
+		defer func() { _ = leaderboard.Close() }()
 	}
 
 	eng := engine.New(engine.Config{
@@ -181,7 +181,7 @@ func runScan(cfg ScanConfig) {
 	if cfg.OutputFile != "" {
 		if w, e := output.New(cfg.OutputFile, output.DetectFormat(cfg.OutputFile)); e == nil {
 			writer = w
-			defer writer.Close()
+			defer func() { _ = writer.Close() }()
 		}
 	}
 
@@ -367,7 +367,7 @@ func loadIPs(path string) ([]net.IP, error) {
 		if err != nil {
 			return nil, fmt.Errorf("open %s: %w", path, err)
 		}
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 	}
 	var ips []net.IP
 	sc := bufio.NewScanner(f)

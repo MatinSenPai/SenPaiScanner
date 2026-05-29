@@ -46,7 +46,7 @@ func TestVersionEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	s := &Server{version: "test", leaderboard: db}
 	req := httptest.NewRequest(http.MethodGet, "/api/version", nil)
@@ -66,7 +66,7 @@ func TestPortsEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	s := &Server{leaderboard: db}
 	req := httptest.NewRequest(http.MethodGet, "/api/ports", nil)
@@ -93,7 +93,7 @@ func TestWarmStartSkipsCIDR(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	s := &Server{leaderboard: db}
 	if got := s.warmStart(context.Background(), scanRequest{CIDR: "1.1.1.0/24", UseV4: true}); len(got) != 0 {

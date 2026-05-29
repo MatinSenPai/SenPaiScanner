@@ -40,7 +40,7 @@ func Serve(addr, version string) error {
 	if err != nil {
 		return err
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	s := &Server{version: version, leaderboard: db}
 	srv := &http.Server{

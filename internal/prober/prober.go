@@ -182,7 +182,7 @@ func probeTCP(ctx context.Context, ip net.IP, port int, timeout time.Duration) (
 		return 0, classifyErr(err)
 	}
 	lat := time.Since(start)
-	conn.Close()
+	_ = conn.Close()
 	return lat, result.ErrNone
 }
 
@@ -208,7 +208,7 @@ func probeTLS(ctx context.Context, ip net.IP, port int, sni string, timeout time
 		return 0, false, classifyErr(err)
 	}
 	lat := time.Since(start)
-	conn.Close()
+	_ = conn.Close()
 	return lat, true, result.ErrNone
 }
 
@@ -259,7 +259,7 @@ func probeHTTP(ctx context.Context, ip net.IP, port int, sni string, timeout tim
 		return 0, false, 0, "", 0, classifyErr(err)
 	}
 	lat = time.Since(start)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	tlsOk = resp.TLS != nil
 	httpStatus = resp.StatusCode
@@ -369,7 +369,7 @@ func probeDownload(ctx context.Context, ip net.IP, port int, timeout time.Durati
 			if err != nil {
 				return
 			}
-			defer resp.Body.Close()
+			defer func() { _ = resp.Body.Close() }()
 			if resp.StatusCode < 200 || resp.StatusCode >= 400 {
 				return
 			}

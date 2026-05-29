@@ -192,7 +192,7 @@ func (s *DB) TopIPs(ctx context.Context, limit int) ([]net.IP, error) {
 	if err != nil {
 		return nil, fmt.Errorf("query warm IPs: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var ips []net.IP
 	for rows.Next() {
@@ -223,7 +223,7 @@ func (s *DB) TopRecords(ctx context.Context, limit int) ([]Record, error) {
 	if err != nil {
 		return nil, fmt.Errorf("query leaderboard: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []Record
 	for rows.Next() {

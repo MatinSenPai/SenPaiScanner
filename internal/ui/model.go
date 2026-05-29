@@ -47,10 +47,6 @@ type tickMsg time.Time
 // ---------------------------------------------------------------------------
 
 var (
-	styleBorder = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("#F6821F"))
-
 	styleTitle = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(lipgloss.Color("#F6821F"))
@@ -1074,11 +1070,11 @@ func (m AppModel) viewQuickScanCount() string {
 			if i == r.selIdx {
 				if p.value == "" && m.quickCustomMode && m.quickCustomRow == r.row {
 					// Active custom input
-					sb.WriteString(fmt.Sprintf("%s%s%s",
+					fmt.Fprintf(&sb, "%s%s%s",
 						styleAccent.Render("["),
 						m.quickCustomInput.View(),
 						styleAccent.Render("]"),
-					))
+					)
 				} else {
 					sb.WriteString(styleSelected.Render(fmt.Sprintf(" %s ", label)))
 				}
@@ -1115,9 +1111,7 @@ func (m AppModel) viewScanConfig() string {
 	var sb strings.Builder
 
 	sb.WriteString(styleTitle.Render("\n  ⚙  Custom Scan Configuration\n"))
-	sb.WriteString(fmt.Sprintf("%s\n\n",
-		styleSep.Render("  "+strings.Repeat("─", 56)),
-	))
+	fmt.Fprintf(&sb, "%s\n\n", styleSep.Render("  "+strings.Repeat("─", 56)))
 
 	labels := []string{
 		"Count      ", "Workers    ", "Timeout    ", "Tries      ", "Port       ",
@@ -1131,7 +1125,7 @@ func (m AppModel) viewScanConfig() string {
 			prefix = styleAccent.Render("  ▶ ")
 			label = styleAccent.Render(labels[i] + "  ")
 		}
-		sb.WriteString(fmt.Sprintf("%s%s%s\n", prefix, label, inp.View()))
+		fmt.Fprintf(&sb, "%s%s%s\n", prefix, label, inp.View())
 	}
 
 	// Mode toggle
@@ -1145,7 +1139,7 @@ func (m AppModel) viewScanConfig() string {
 		}
 		sb.WriteString("  ")
 	}
-	sb.WriteString(fmt.Sprintf("%s\n", styleDim.Render("  ←/→ to cycle")))
+	fmt.Fprintf(&sb, "%s\n", styleDim.Render("  ←/→ to cycle"))
 
 	// IPv4/v6 toggles
 	v4s := styleGood.Render("ON")
@@ -1156,13 +1150,13 @@ func (m AppModel) viewScanConfig() string {
 	if !m.scanCfg.UseV6 {
 		v6s = styleBad.Render("OFF")
 	}
-	sb.WriteString(fmt.Sprintf("%s%s%s\n", styleHeader.Render("  IPv4         "), v4s, styleDim.Render("  F2 toggle")))
-	sb.WriteString(fmt.Sprintf("%s%s%s\n", styleHeader.Render("  IPv6         "), v6s, styleDim.Render("  F3 toggle")))
+	fmt.Fprintf(&sb, "%s%s%s\n", styleHeader.Render("  IPv4         "), v4s, styleDim.Render("  F2 toggle"))
+	fmt.Fprintf(&sb, "%s%s%s\n", styleHeader.Render("  IPv6         "), v6s, styleDim.Render("  F3 toggle"))
 	profile := styleGood.Render("TURBO")
 	if m.scanCfg.Stealth {
 		profile = styleWarn.Render("STEALTH")
 	}
-	sb.WriteString(fmt.Sprintf("%s%s%s\n", styleHeader.Render("  Profile      "), profile, styleDim.Render("  F4 toggle")))
+	fmt.Fprintf(&sb, "%s%s%s\n", styleHeader.Render("  Profile      "), profile, styleDim.Render("  F4 toggle"))
 
 	sb.WriteRune('\n')
 	sb.WriteString(styleHint.Render("  tab/↑↓ navigate   enter start scan   esc back"))
@@ -1179,7 +1173,7 @@ func (m AppModel) viewLiveScan() string {
 	var sb strings.Builder
 
 	sb.WriteString(styleTitle.Render("\n  ⚡  Live Scan\n"))
-	sb.WriteString(fmt.Sprintf("%s\n\n", styleSep.Render("  "+strings.Repeat("─", min(m.width-4, 70)))))
+	fmt.Fprintf(&sb, "%s\n\n", styleSep.Render("  "+strings.Repeat("─", min(m.width-4, 70))))
 
 	// Stats row
 	elapsed := time.Since(m.scanStarted).Round(time.Second)
@@ -1203,7 +1197,7 @@ func (m AppModel) viewLiveScan() string {
 			fmt.Sprintf(" %.0f%%", pct)
 	}
 
-	sb.WriteString(fmt.Sprintf("  %s  tested: %s  healthy: %s  failed: %s  flying: %s  rate: %s  %s%s\n\n",
+	fmt.Fprintf(&sb, "  %s  tested: %s  healthy: %s  failed: %s  flying: %s  rate: %s  %s%s\n\n",
 		icon,
 		styleAccent.Render(fmt.Sprintf("%d", m.scanStats.Tested)),
 		styleGood.Render(fmt.Sprintf("%d", m.scanStats.Healthy)),
@@ -1212,12 +1206,12 @@ func (m AppModel) viewLiveScan() string {
 		styleDim.Render(rateStr),
 		styleDim.Render(elapsed.String()),
 		progBar,
-	))
+	)
 
 	// Table header
 	hdr := fmt.Sprintf("  %-18s  %6s  %7s  %9s  %8s  %9s  %5s  %-6s",
 		"IP", "SCORE", "LOSS", "AVG(ms)", "JTR(ms)", "DL(KB/s)", "TLS", "COLO")
-	sb.WriteString(fmt.Sprintf("%s\n%s\n", styleHeader.Render(hdr), styleSep.Render("  "+strings.Repeat("─", 81))))
+	fmt.Fprintf(&sb, "%s\n%s\n", styleHeader.Render(hdr), styleSep.Render("  "+strings.Repeat("─", 81)))
 
 	maxRows := m.height - 14
 	if maxRows < 3 {
@@ -1246,11 +1240,11 @@ func (m AppModel) viewLiveScan() string {
 
 		switch {
 		case r.IsHealthy() && r.Loss() == 0 && r.Avg().Milliseconds() < 200:
-			sb.WriteString(fmt.Sprintf("%s\n", styleGood.Render(line)))
+			fmt.Fprintf(&sb, "%s\n", styleGood.Render(line))
 		case !r.IsHealthy():
-			sb.WriteString(fmt.Sprintf("%s\n", styleBad.Render(line)))
+			fmt.Fprintf(&sb, "%s\n", styleBad.Render(line))
 		default:
-			sb.WriteString(fmt.Sprintf("%s\n", styleWarn.Render(line)))
+			fmt.Fprintf(&sb, "%s\n", styleWarn.Render(line))
 		}
 	}
 
@@ -1279,7 +1273,7 @@ func (m AppModel) viewResults() string {
 	var sb strings.Builder
 
 	sb.WriteString(styleTitle.Render("\n  ✅  Scan Results\n"))
-	sb.WriteString(fmt.Sprintf("%s\n\n", styleSep.Render("  "+strings.Repeat("─", 60))))
+	fmt.Fprintf(&sb, "%s\n\n", styleSep.Render("  "+strings.Repeat("─", 60)))
 
 	top := result.TopN(m.scanResults, 20)
 	if len(top) == 0 {
@@ -1287,7 +1281,7 @@ func (m AppModel) viewResults() string {
 	} else {
 		hdr := fmt.Sprintf("  %-18s  %6s  %7s  %9s  %8s  %9s  %5s  %-6s",
 			"IP", "SCORE", "LOSS", "AVG(ms)", "JTR(ms)", "DL(KB/s)", "TLS", "COLO")
-		sb.WriteString(fmt.Sprintf("%s\n%s\n", styleHeader.Render(hdr), styleSep.Render("  "+strings.Repeat("─", 81))))
+		fmt.Fprintf(&sb, "%s\n%s\n", styleHeader.Render(hdr), styleSep.Render("  "+strings.Repeat("─", 81)))
 
 		for i, r := range top {
 			tlsIcon := "✗"
@@ -1305,7 +1299,7 @@ func (m AppModel) viewResults() string {
 				result.Ms(r.Jitter()),
 				r.Throughput/1024,
 				tlsIcon, colo)
-			sb.WriteString(fmt.Sprintf("%s%s\n", rank, styleGood.Render(line)))
+			fmt.Fprintf(&sb, "%s%s\n", rank, styleGood.Render(line))
 		}
 	}
 
@@ -1343,10 +1337,10 @@ func (m AppModel) viewLiveColos() string {
 	var sb strings.Builder
 
 	sb.WriteString(styleTitle.Render("\n  🌍  Discovering Cloudflare PoPs\n"))
-	sb.WriteString(fmt.Sprintf("%s\n\n", styleSep.Render("  "+strings.Repeat("─", 56))))
+	fmt.Fprintf(&sb, "%s\n\n", styleSep.Render("  "+strings.Repeat("─", 56)))
 
 	if !m.colosDone {
-		sb.WriteString(fmt.Sprintf("  %s probing IPs via /cdn-cgi/trace…\n\n", m.spinner.View()))
+		fmt.Fprintf(&sb, "  %s probing IPs via /cdn-cgi/trace…\n\n", m.spinner.View())
 	} else {
 		sb.WriteString(styleGood.Render("  ✓ Discovery complete\n\n"))
 	}

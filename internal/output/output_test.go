@@ -47,7 +47,9 @@ func TestWriteCSVPreservesSubMs(t *testing.T) {
 	if err := w.Write(sampleResult()); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
-	w.Close()
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
 
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -75,7 +77,9 @@ func TestWriteJSONLIsValidPerLine(t *testing.T) {
 	if err := w.Write(sampleResult()); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
-	w.Close()
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
 
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -106,7 +110,9 @@ func TestWriteTXTIsPlainIP(t *testing.T) {
 	if err := w.Write(sampleResult()); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
-	w.Close()
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
 
 	data, err := os.ReadFile(path)
 	if err != nil {
