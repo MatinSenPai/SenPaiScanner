@@ -75,7 +75,9 @@ func New(useV4, useV6 bool, extra []string) (*Source, error) {
 
 // Random returns a single random IP from the configured ranges.
 func (s *Source) Random() net.IP {
-	all := append(s.v4Nets, s.v6Nets...)
+	all := make([]*net.IPNet, 0, len(s.v4Nets)+len(s.v6Nets))
+	all = append(all, s.v4Nets...)
+	all = append(all, s.v6Nets...)
 	target := all[s.rng.Intn(len(all))]
 	return randomFromNet(target, s.rng)
 }
