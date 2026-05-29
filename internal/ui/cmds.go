@@ -8,6 +8,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -17,11 +18,42 @@ import (
 	"github.com/matinsenpai/senpaiscanner/internal/output"
 	"github.com/matinsenpai/senpaiscanner/internal/prober"
 	"github.com/matinsenpai/senpaiscanner/internal/result"
+	"github.com/matinsenpai/senpaiscanner/internal/store"
 )
 
-// scanCancel holds the cancel function for the active scan so the TUI can
-// abort it when the user presses esc/q.
-var scanCancel context.CancelFunc
+// statsInterval is how often live engine counters are pushed to the TUI.
+// Pushing on every probe would flood the Bubble Tea event loop on large scans;
+// a steady cadence keeps the display smooth at a fraction of the cost.
+const statsInterval = 150 * time.Millisecond
+
+// activeScan tracks the cancel function of the currently running scan. It is
+// written from scan goroutines and read from the TUI goroutine, so all access
+// goes through the mutex.
+var activeScan struct {
+	mu     sync.Mutex
+	cancel context.CancelFunc
+}
+
+// setActiveScan registers cancel as the active scan, cancelling any previous
+// scan that is still running so two scans never compete.
+func setActiveScan(cancel context.CancelFunc) {
+	activeScan.mu.Lock()
+	defer activeScan.mu.Unlock()
+	if activeScan.cancel != nil {
+		activeScan.cancel()
+	}
+	activeScan.cancel = cancel
+}
+
+// cancelActiveScan cancels the running scan, if any.
+func cancelActiveScan() {
+	activeScan.mu.Lock()
+	defer activeScan.mu.Unlock()
+	if activeScan.cancel != nil {
+		activeScan.cancel()
+		activeScan.cancel = nil
+	}
+}
 
 // StartScanCmd builds a tea.Cmd that runs the scan engine in the background,
 // sending ResultMsg and StatsMsg messages to the Bubble Tea program.
@@ -35,9 +67,7 @@ func StartScanCmd(cfg ScanConfig) tea.Cmd {
 // CancelScanCmd cancels the running scan.
 func CancelScanCmd() tea.Cmd {
 	return func() tea.Msg {
-		if scanCancel != nil {
-			scanCancel()
-		}
+		cancelActiveScan()
 		return nil
 	}
 }
@@ -55,6 +85,23 @@ func StartColosCmd() tea.Cmd {
 	return func() tea.Msg {
 		go runColos()
 		return nil
+	}
+}
+
+// StartUpdateRangesCmd fetches Cloudflare's current published CIDRs and caches
+// them on disk so subsequent scans pick them up, reporting a RangesUpdatedMsg.
+func StartUpdateRangesCmd() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		v4, v6, err := ipsrc.UpdateRanges(ctx)
+		if err != nil {
+			return RangesUpdatedMsg{Err: err}
+		}
+		if err := ipsrc.SaveRanges(v4, v6); err != nil {
+			return RangesUpdatedMsg{Err: err}
+		}
+		return RangesUpdatedMsg{V4: len(v4), V6: len(v6)}
 	}
 }
 
@@ -100,140 +147,188 @@ func runScan(cfg ScanConfig) {
 
 	src, err := ipsrc.New(cfg.UseV4, cfg.UseV6, extra)
 	if err != nil {
-		if prog != nil {
-			prog.Send(DoneMsg{})
-		}
+		finishScan()
 		return
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	scanCancel = cancel
+	setActiveScan(cancel)
 	defer cancel()
 
-	engCfg := engine.Config{
+	leaderboard, _ := store.Open(store.DefaultPath())
+	if leaderboard != nil {
+		defer leaderboard.Close()
+	}
+
+	eng := engine.New(engine.Config{
 		Concurrency: concurrency,
 		ProbeConfig: prober.Config{
-			Port:       port,
-			Mode:       mode,
-			Tries:      tries,
-			Timeout:    timeout,
-			SNI:        cfg.SNI,
-			SpeedBytes: speedSampleForMode(mode),
+			Port:          port,
+			Mode:          mode,
+			Tries:         tries,
+			Timeout:       timeout,
+			SNI:           cfg.SNI,
+			SpeedBytes:    speedSampleForMode(mode),
+			SpeedStreams:  3,
+			SpeedDuration: minDuration(timeout, 3*time.Second),
+			Jitter:        jitterForConfig(cfg),
 		},
-	}
-	eng := engine.New(engCfg)
+	})
 
 	coloSet := buildColoSet(cfg.ColoFilter)
 
 	var writer *output.Writer
 	if cfg.OutputFile != "" {
-		fmt2 := output.DetectFormat(cfg.OutputFile)
-		if w, e := output.New(cfg.OutputFile, fmt2); e == nil {
+		if w, e := output.New(cfg.OutputFile, output.DetectFormat(cfg.OutputFile)); e == nil {
 			writer = w
 			defer writer.Close()
 		}
 	}
 
-	ipStream := src.Stream(ctx, count)
+	go streamStats(ctx, eng)
+
+	warmIPs := warmStartIPs(ctx, leaderboard, cfg, count, concurrency)
+	ipStream := scanIPStream(ctx, src, count, warmIPs)
 	eng.Run(ctx, ipStream, func(r *result.Result) {
-		if !passesColoFilter(r, coloSet) {
+		if leaderboard != nil {
+			_ = leaderboard.SaveResult(ctx, r)
+		}
+		if !r.IsHealthy() || !passesColoFilter(r, coloSet) {
 			return
 		}
-		// Only healthy IPs go to the output file; writing every scanned IP
-		// would flood the file with thousands of failed probes.
-		if writer != nil && r.IsHealthy() {
+		// Only healthy, filter-matching IPs reach the TUI and the output file.
+		// Failed probes are reflected in the counters, not streamed as rows —
+		// this is what keeps a 100k-IP scan responsive.
+		if writer != nil {
 			_ = writer.Write(r)
 		}
-		if prog != nil {
-			s := eng.Stats()
-			prog.Send(ResultMsg(r))
-			prog.Send(StatsMsg{s.Tested.Load(), s.Healthy.Load(), s.Failed.Load(), s.InFlight.Load()})
-		}
+		sendResult(r)
 	})
 
-	if prog != nil {
-		prog.Send(DoneMsg{})
-	}
+	pushStats(eng) // final exact counters before signalling completion
+	finishScan()
 }
 
 func runTest(ipFile string) {
 	ips, err := loadIPs(ipFile)
 	if err != nil || len(ips) == 0 {
-		if prog != nil {
-			prog.Send(DoneMsg{})
-		}
+		finishScan()
 		return
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	scanCancel = cancel
+	setActiveScan(cancel)
 	defer cancel()
 
-	engCfg := engine.Config{
+	eng := engine.New(engine.Config{
 		Concurrency: 20,
 		ProbeConfig: prober.Config{
-			Port:       443,
-			Mode:       prober.ModeHTTP,
-			Tries:      6,
-			Timeout:    10 * time.Second,
-			SNI:        "speed.cloudflare.com",
-			SpeedBytes: 512 * 1024,
+			Port:          443,
+			Mode:          prober.ModeHTTP,
+			Tries:         6,
+			Timeout:       10 * time.Second,
+			SNI:           "speed.cloudflare.com",
+			SpeedBytes:    512 * 1024,
+			SpeedStreams:  3,
+			SpeedDuration: 4 * time.Second,
+			Jitter:        prober.StealthJitter, // deep validation: accuracy over speed
 		},
-	}
-	eng := engine.New(engCfg)
-
-	eng.RunList(ctx, ips, func(r *result.Result) {
-		if prog != nil {
-			s := eng.Stats()
-			prog.Send(ResultMsg(r))
-			prog.Send(StatsMsg{s.Tested.Load(), s.Healthy.Load(), s.Failed.Load(), s.InFlight.Load()})
-		}
 	})
 
-	if prog != nil {
-		prog.Send(DoneMsg{})
-	}
+	go streamStats(ctx, eng)
+
+	// The Test flow validates a small, user-supplied list, so every result
+	// (including failures) is shown — the user wants to see which candidates
+	// passed and which did not.
+	eng.RunList(ctx, ips, func(r *result.Result) {
+		sendResult(r)
+	})
+
+	pushStats(eng) // final exact counters before signalling completion
+	finishScan()
 }
 
 func runColos() {
 	src, err := ipsrc.New(true, false, nil)
 	if err != nil {
-		if prog != nil {
-			prog.Send(ColosDoneMsg{})
-		}
+		finishColos()
 		return
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	scanCancel = cancel
+	setActiveScan(cancel)
 	defer cancel()
 
-	engCfg := engine.Config{
+	eng := engine.New(engine.Config{
 		Concurrency: 80,
 		ProbeConfig: prober.Config{
-			Port:       443,
-			Mode:       prober.ModeHTTP,
-			Tries:      2,
-			Timeout:    5 * time.Second,
-			SpeedBytes: 0,
+			Port:    443,
+			Mode:    prober.ModeHTTP,
+			Tries:   2,
+			Timeout: 5 * time.Second,
 		},
-	}
-	eng := engine.New(engCfg)
-	ipStream := src.Stream(ctx, 300)
+	})
 
+	go streamStats(ctx, eng)
+
+	ipStream := src.Stream(ctx, 300)
 	eng.Run(ctx, ipStream, func(r *result.Result) {
-		if !r.IsHealthy() || r.Colo == "" {
-			return
-		}
-		if prog != nil {
-			s := eng.Stats()
-			prog.Send(ResultMsg(r))
-			prog.Send(StatsMsg{s.Tested.Load(), s.Healthy.Load(), s.Failed.Load(), s.InFlight.Load()})
+		if r.IsHealthy() && r.Colo != "" {
+			sendResult(r)
 		}
 	})
 
+	pushStats(eng)
+	finishColos()
+}
+
+// ---------------------------------------------------------------------------
+// TUI messaging helpers
+// ---------------------------------------------------------------------------
+
+func sendResult(r *result.Result) {
+	if prog != nil {
+		prog.Send(ResultMsg(r))
+	}
+}
+
+func finishScan() {
+	if prog != nil {
+		prog.Send(DoneMsg{})
+	}
+}
+
+func finishColos() {
 	if prog != nil {
 		prog.Send(ColosDoneMsg{})
+	}
+}
+
+// pushStats sends one snapshot of the engine counters to the TUI.
+func pushStats(eng *engine.Engine) {
+	if prog == nil {
+		return
+	}
+	s := eng.Stats()
+	prog.Send(StatsMsg{
+		Tested:   s.Tested.Load(),
+		Healthy:  s.Healthy.Load(),
+		Failed:   s.Failed.Load(),
+		InFlight: s.InFlight.Load(),
+	})
+}
+
+// streamStats pushes counter snapshots at a fixed cadence until ctx is done.
+func streamStats(ctx context.Context, eng *engine.Engine) {
+	t := time.NewTicker(statsInterval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			pushStats(eng)
+		}
 	}
 }
 
@@ -293,11 +388,88 @@ func speedSampleForMode(mode prober.Mode) int64 {
 	if mode != prober.ModeHTTP {
 		return 0
 	}
-	// 64 KB is enough to detect IPs that stall on real data while still
-	// completing reliably on restricted/high-latency networks. 256 KB was too
-	// large: on throttled connections it consistently timed out, making every
-	// IP appear unhealthy even when the trace GET succeeded fine.
-	return 64 * 1024
+	// A larger sample is now safe because prober caps download time and can
+	// split the sample over a few streams. This makes throughput meaningful
+	// without letting speed checks dominate the scan.
+	return 512 * 1024
+}
+
+func jitterForConfig(cfg ScanConfig) time.Duration {
+	if cfg.Stealth {
+		return prober.StealthJitter
+	}
+	return 0
+}
+
+func warmStartIPs(ctx context.Context, leaderboard *store.DB, cfg ScanConfig, count, concurrency int) []net.IP {
+	if leaderboard == nil || strings.TrimSpace(cfg.CIDR) != "" {
+		return nil
+	}
+	limit := max(100, concurrency*2)
+	if count > 0 && limit > count {
+		limit = count
+	}
+	ips, err := leaderboard.TopIPs(ctx, limit)
+	if err != nil {
+		return nil
+	}
+	out := ips[:0]
+	for _, ip := range ips {
+		if ip == nil {
+			continue
+		}
+		if ip.To4() != nil && cfg.UseV4 {
+			out = append(out, ip)
+			continue
+		}
+		if ip.To4() == nil && cfg.UseV6 {
+			out = append(out, ip)
+		}
+	}
+	return out
+}
+
+func scanIPStream(ctx context.Context, src *ipsrc.Source, count int, warm []net.IP) <-chan net.IP {
+	ch := make(chan net.IP, 256)
+	go func() {
+		defer close(ch)
+		seen := make(map[string]struct{}, len(warm))
+		sent := 0
+
+		send := func(ip net.IP) bool {
+			if ip == nil {
+				return true
+			}
+			if count > 0 && sent >= count {
+				return false
+			}
+			key := string(ip)
+			if _, ok := seen[key]; ok {
+				return true
+			}
+			seen[key] = struct{}{}
+			select {
+			case <-ctx.Done():
+				return false
+			case ch <- ip:
+				sent++
+				return true
+			}
+		}
+
+		for _, ip := range warm {
+			if !send(ip) {
+				return
+			}
+		}
+
+		for ip := range src.Stream(ctx, 0) {
+			if !send(ip) {
+				return
+			}
+		}
+	}()
+	return ch
 }
 
 func parseTimeout(raw string, fallback time.Duration) time.Duration {
@@ -312,4 +484,11 @@ func parseTimeout(raw string, fallback time.Duration) time.Duration {
 		return time.Duration(seconds) * time.Second
 	}
 	return fallback
+}
+
+func minDuration(a, b time.Duration) time.Duration {
+	if a < b {
+		return a
+	}
+	return b
 }

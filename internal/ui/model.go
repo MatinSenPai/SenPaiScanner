@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/matinsenpai/senpaiscanner/internal/banner"
+	"github.com/matinsenpai/senpaiscanner/internal/output"
 	"github.com/matinsenpai/senpaiscanner/internal/result"
 )
 
@@ -30,6 +32,12 @@ type DoneMsg struct{}
 
 // ColosDoneMsg signals the colo discovery finished.
 type ColosDoneMsg struct{}
+
+// RangesUpdatedMsg reports the outcome of a Cloudflare CIDR refresh.
+type RangesUpdatedMsg struct {
+	V4, V6 int
+	Err    error
+}
 
 // tickMsg drives banner animation and stat refresh.
 type tickMsg time.Time
@@ -97,6 +105,7 @@ type ScanConfig struct {
 	SNI         string
 	UseV4       bool
 	UseV6       bool
+	Stealth     bool
 }
 
 func defaultScanConfig() ScanConfig {
@@ -183,17 +192,22 @@ type AppModel struct {
 	modeIdx    int
 
 	// live scan state
-	scanResults []*result.Result
-	sortBy      result.SortBy
-	sortIdx     int
-	scanStats   StatsMsg
-	scanDone    bool
-	scanStarted time.Time
-	scanTotal   int
+	scanResults  []*result.Result
+	sortBy       result.SortBy
+	sortIdx      int
+	scanStats    StatsMsg
+	scanDone     bool
+	scanStarted  time.Time
+	scanTotal    int
+	resultsDirty bool // results arrived since the last sort; re-sort on next tick
 
 	// colos
 	colosResults []*result.Result
 	colosDone    bool
+
+	// save-as (interactive "write results to a custom filename")
+	saveMode  bool
+	saveInput textinput.Model
 
 	// shared
 	statusMsg string
@@ -210,6 +224,7 @@ var menuEntries = []menuEntry{
 	{"Custom Scan", "configure count, mode, CIDR, output…"},
 	{"Test IPs", "deep-test a list of IPs from file"},
 	{"Discover Colos", "find reachable Cloudflare PoPs"},
+	{"Update Ranges", "refresh Cloudflare CIDR list from cloudflare.com"},
 	{"About", ""},
 	{"Quit", ""},
 }
@@ -221,11 +236,17 @@ const (
 	menuCustomScan = 1
 	menuTestIPs    = 2
 	menuColos      = 3
-	menuAbout      = 4
-	menuQuit       = 5
+	menuUpdate     = 4
+	menuAbout      = 5
+	menuQuit       = 6
 )
 
 var modes = []string{"tls", "tcp", "http"}
+
+// numSortModes is the number of result.SortBy values that the "s" key cycles.
+const numSortModes = 6
+
+var sortNames = []string{"avg", "loss", "jitter", "colo", "speed", "score"}
 
 // ---------------------------------------------------------------------------
 // Constructor
@@ -241,6 +262,11 @@ func NewApp(version string) AppModel {
 	customInput.CharLimit = 10
 	customInput.Width = 14
 
+	saveInput := textinput.New()
+	saveInput.Placeholder = "results.csv"
+	saveInput.CharLimit = 120
+	saveInput.Width = 40
+
 	m := AppModel{
 		page:             PageHome,
 		spinner:          sp,
@@ -250,6 +276,9 @@ func NewApp(version string) AppModel {
 		height:           40,
 		scanStarted:      time.Now(),
 		quickCustomInput: customInput,
+		saveInput:        saveInput,
+		sortBy:           result.SortByScore,
+		sortIdx:          int(result.SortByScore),
 	}
 	m.modeIdx = modeIndex(m.scanCfg.Mode)
 	m.buildFormInputs()
@@ -316,6 +345,13 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tickMsg:
 		m.bannerFrame++
+		// Sort at most once per tick rather than on every arriving result, so a
+		// fast scan streaming thousands of healthy rows can't turn the live view
+		// into an O(n²·log n) hot path. The tick cadence bounds the work.
+		if m.resultsDirty {
+			result.Sort(m.scanResults, m.sortBy)
+			m.resultsDirty = false
+		}
 		return m, tick()
 
 	case spinner.TickMsg:
@@ -327,8 +363,9 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.page == PageLiveColos {
 			m.colosResults = append(m.colosResults, msg)
 		} else {
+			// Defer sorting to the next tick (see tickMsg); appending is O(1).
 			m.scanResults = append(m.scanResults, msg)
-			result.Sort(m.scanResults, m.sortBy)
+			m.resultsDirty = true
 		}
 		return m, nil
 
@@ -338,10 +375,24 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case DoneMsg:
 		m.scanDone = true
+		// Guarantee a final exact ordering the moment the scan ends, regardless
+		// of where we are in the tick cycle, so the Results page is correct.
+		if m.resultsDirty {
+			result.Sort(m.scanResults, m.sortBy)
+			m.resultsDirty = false
+		}
 		return m, nil
 
 	case ColosDoneMsg:
 		m.colosDone = true
+		return m, nil
+
+	case RangesUpdatedMsg:
+		if msg.Err != nil {
+			m.statusMsg = fmt.Sprintf("✗ range update failed: %v", msg.Err)
+		} else {
+			m.statusMsg = fmt.Sprintf("✓ ranges updated: %d v4, %d v6 (cached, used on next scan)", msg.V4, msg.V6)
+		}
 		return m, nil
 
 	case tea.KeyMsg:
@@ -367,7 +418,7 @@ func (m AppModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleLiveScanKey(msg)
 	case PageResults:
 		return m.handleResultsKey(msg)
-	case PageColos, PageLiveColos:
+	case PageLiveColos:
 		return m.handleColosKey(msg)
 	case PageAbout:
 		if msg.String() == "q" || msg.String() == "esc" || msg.String() == "enter" {
@@ -425,6 +476,9 @@ func (m AppModel) selectMenuItem() (tea.Model, tea.Cmd) {
 		m.colosDone = false
 		m.page = PageLiveColos
 		return m, StartColosCmd()
+	case menuUpdate:
+		m.statusMsg = "⟳ fetching Cloudflare ranges…"
+		return m, StartUpdateRangesCmd()
 	case menuAbout:
 		m.page = PageAbout
 	case menuQuit:
@@ -691,6 +745,8 @@ func (m AppModel) handleConfigKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.scanCfg.UseV4 = !m.scanCfg.UseV4
 	case "f3":
 		m.scanCfg.UseV6 = !m.scanCfg.UseV6
+	case "f4":
+		m.scanCfg.Stealth = !m.scanCfg.Stealth
 	case "enter":
 		m.saveScanConfig()
 		m.scanResults = nil
@@ -719,6 +775,9 @@ func (m *AppModel) saveScanConfig() {
 }
 
 func (m AppModel) handleLiveScanKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.saveMode {
+		return m.handleSaveModeKey(msg)
+	}
 	switch msg.String() {
 	case "ctrl+c":
 		return m, tea.Quit
@@ -730,33 +789,99 @@ func (m AppModel) handleLiveScanKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, CancelScanCmd()
 		}
 	case "s":
-		m.sortIdx = (m.sortIdx + 1) % 5
+		m.sortIdx = (m.sortIdx + 1) % numSortModes
 		m.sortBy = result.SortBy(m.sortIdx)
 		result.Sort(m.scanResults, m.sortBy)
+		m.resultsDirty = false
 	case "enter":
 		if m.scanDone {
 			m.page = PageResults
 		}
 	case "c":
 		m.statusMsg = m.copyHealthyIPsToClipboard()
+	case "w":
+		return m.beginSave()
 	}
 	return m, nil
 }
 
 func (m AppModel) handleResultsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.saveMode {
+		return m.handleSaveModeKey(msg)
+	}
 	switch msg.String() {
 	case "ctrl+c":
 		return m, tea.Quit
 	case "q", "esc", "enter":
 		m.page = PageHome
 	case "s":
-		m.sortIdx = (m.sortIdx + 1) % 5
+		m.sortIdx = (m.sortIdx + 1) % numSortModes
 		m.sortBy = result.SortBy(m.sortIdx)
 		result.Sort(m.scanResults, m.sortBy)
+		m.resultsDirty = false
 	case "c":
 		m.statusMsg = m.copyHealthyIPsToClipboard()
+	case "w":
+		return m.beginSave()
 	}
 	return m, nil
+}
+
+// beginSave opens the inline "save as" prompt, pre-filled with a timestamped
+// default name so the user can just press enter or edit it.
+func (m AppModel) beginSave() (tea.Model, tea.Cmd) {
+	m.saveMode = true
+	m.statusMsg = ""
+	m.saveInput.SetValue(fmt.Sprintf("results_%s.csv", time.Now().Format("20060102_150405")))
+	m.saveInput.Focus()
+	return m, textinput.Blink
+}
+
+// handleSaveModeKey routes keys while the "save as" prompt is open.
+func (m AppModel) handleSaveModeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c":
+		return m, tea.Quit
+	case "esc":
+		m.saveMode = false
+		m.saveInput.Blur()
+		return m, nil
+	case "enter":
+		m.statusMsg = m.saveResultsToFile(m.saveInput.Value())
+		m.saveMode = false
+		m.saveInput.Blur()
+		return m, nil
+	}
+	var cmd tea.Cmd
+	m.saveInput, cmd = m.saveInput.Update(msg)
+	return m, cmd
+}
+
+// saveResultsToFile writes every healthy result (sorted by latency) to path,
+// choosing CSV/JSON/TXT from the file extension. Returns a status line.
+func (m AppModel) saveResultsToFile(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return "save cancelled: empty filename"
+	}
+	healthy := result.TopN(m.scanResults, 0) // all healthy, sorted by avg
+	if len(healthy) == 0 {
+		return "no healthy IPs to save"
+	}
+	w, err := output.New(path, output.DetectFormat(path))
+	if err != nil {
+		return fmt.Sprintf("save error: %v", err)
+	}
+	for _, r := range healthy {
+		if err := w.Write(r); err != nil {
+			_ = w.Close()
+			return fmt.Sprintf("save error: %v", err)
+		}
+	}
+	if err := w.Close(); err != nil {
+		return fmt.Sprintf("save error: %v", err)
+	}
+	return fmt.Sprintf("✓ saved %d IPs → %s", len(healthy), path)
 }
 
 // copyHealthyIPsToClipboard writes one IP per line to the system clipboard
@@ -782,9 +907,12 @@ func (m AppModel) handleColosKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+c":
 		return m, tea.Quit
 	case "q", "esc", "enter":
-		if m.colosDone || m.page == PageColos {
+		if !m.colosDone {
+			// Discovery still running — cancel it before returning home.
 			m.page = PageHome
+			return m, CancelScanCmd()
 		}
+		m.page = PageHome
 	}
 	return m, nil
 }
@@ -864,6 +992,12 @@ func (m AppModel) viewHome() string {
 			line += "  " + styleDim.Render(item.desc)
 		}
 		sb.WriteString(line)
+		sb.WriteRune('\n')
+	}
+
+	if m.statusMsg != "" {
+		sb.WriteRune('\n')
+		sb.WriteString(styleAccent.Render("  " + m.statusMsg))
 		sb.WriteRune('\n')
 	}
 
@@ -1024,6 +1158,11 @@ func (m AppModel) viewScanConfig() string {
 	}
 	sb.WriteString(fmt.Sprintf("%s%s%s\n", styleHeader.Render("  IPv4         "), v4s, styleDim.Render("  F2 toggle")))
 	sb.WriteString(fmt.Sprintf("%s%s%s\n", styleHeader.Render("  IPv6         "), v6s, styleDim.Render("  F3 toggle")))
+	profile := styleGood.Render("TURBO")
+	if m.scanCfg.Stealth {
+		profile = styleWarn.Render("STEALTH")
+	}
+	sb.WriteString(fmt.Sprintf("%s%s%s\n", styleHeader.Render("  Profile      "), profile, styleDim.Render("  F4 toggle")))
 
 	sb.WriteRune('\n')
 	sb.WriteString(styleHint.Render("  tab/↑↓ navigate   enter start scan   esc back"))
@@ -1040,7 +1179,7 @@ func (m AppModel) viewLiveScan() string {
 	var sb strings.Builder
 
 	sb.WriteString(styleTitle.Render("\n  ⚡  Live Scan\n"))
-	sb.WriteString(fmt.Sprintf("%s\n\n", styleSep.Render("  "+strings.Repeat("─", minInt(m.width-4, 70)))))
+	sb.WriteString(fmt.Sprintf("%s\n\n", styleSep.Render("  "+strings.Repeat("─", min(m.width-4, 70)))))
 
 	// Stats row
 	elapsed := time.Since(m.scanStarted).Round(time.Second)
@@ -1076,9 +1215,9 @@ func (m AppModel) viewLiveScan() string {
 	))
 
 	// Table header
-	hdr := fmt.Sprintf("  %-18s  %7s  %9s  %8s  %9s  %5s  %-6s",
-		"IP", "LOSS", "AVG(ms)", "JTR(ms)", "DL(KB/s)", "TLS", "COLO")
-	sb.WriteString(fmt.Sprintf("%s\n%s\n", styleHeader.Render(hdr), styleSep.Render("  "+strings.Repeat("─", 72))))
+	hdr := fmt.Sprintf("  %-18s  %6s  %7s  %9s  %8s  %9s  %5s  %-6s",
+		"IP", "SCORE", "LOSS", "AVG(ms)", "JTR(ms)", "DL(KB/s)", "TLS", "COLO")
+	sb.WriteString(fmt.Sprintf("%s\n%s\n", styleHeader.Render(hdr), styleSep.Render("  "+strings.Repeat("─", 81))))
 
 	maxRows := m.height - 14
 	if maxRows < 3 {
@@ -1098,10 +1237,10 @@ func (m AppModel) viewLiveScan() string {
 		if colo == "" {
 			colo = "—"
 		}
-		line := fmt.Sprintf("  %-18s  %6.1f%%  %9.2f  %8.2f  %9.1f  %5s  %-6s",
-			r.IP.String(), r.Loss(),
-			float64(r.Avg().Milliseconds()),
-			float64(r.Jitter().Milliseconds()),
+		line := fmt.Sprintf("  %-18s  %6.1f  %6.1f%%  %9.2f  %8.2f  %9.1f  %5s  %-6s",
+			r.IP.String(), r.Score(), r.Loss(),
+			result.Ms(r.Avg()),
+			result.Ms(r.Jitter()),
 			r.Throughput/1024,
 			tlsIcon, colo)
 
@@ -1116,13 +1255,17 @@ func (m AppModel) viewLiveScan() string {
 	}
 
 	sb.WriteRune('\n')
-	sortNames := []string{"avg", "loss", "jitter", "colo", "speed"}
-	hint := fmt.Sprintf("  s sort(→%s)   c copy IPs   q/esc back", sortNames[m.sortIdx%5])
-	if m.scanDone {
-		hint = fmt.Sprintf("  s sort(→%s)   c copy IPs   enter/q → results", sortNames[m.sortIdx%5])
-	}
 	if m.statusMsg != "" {
 		sb.WriteString(styleGood.Render("  "+m.statusMsg) + "\n")
+	}
+	if m.saveMode {
+		sb.WriteString(styleAccent.Render("  save → ") + m.saveInput.View() + "\n")
+		sb.WriteString(styleHint.Render("  filename .csv/.json/.txt   enter save   esc cancel"))
+		return sb.String()
+	}
+	hint := fmt.Sprintf("  s sort(→%s)   c copy IPs   w save   q/esc back", sortNames[m.sortIdx%numSortModes])
+	if m.scanDone {
+		hint = fmt.Sprintf("  s sort(→%s)   c copy IPs   w save   enter/q → results", sortNames[m.sortIdx%numSortModes])
 	}
 	sb.WriteString(styleHint.Render(hint))
 	return sb.String()
@@ -1142,9 +1285,9 @@ func (m AppModel) viewResults() string {
 	if len(top) == 0 {
 		sb.WriteString(styleWarn.Render("  No healthy IPs found. Try raising timeout, lowering workers, or using a different SNI.\n"))
 	} else {
-		hdr := fmt.Sprintf("  %-18s  %7s  %9s  %8s  %9s  %5s  %-6s",
-			"IP", "LOSS", "AVG(ms)", "JTR(ms)", "DL(KB/s)", "TLS", "COLO")
-		sb.WriteString(fmt.Sprintf("%s\n%s\n", styleHeader.Render(hdr), styleSep.Render("  "+strings.Repeat("─", 72))))
+		hdr := fmt.Sprintf("  %-18s  %6s  %7s  %9s  %8s  %9s  %5s  %-6s",
+			"IP", "SCORE", "LOSS", "AVG(ms)", "JTR(ms)", "DL(KB/s)", "TLS", "COLO")
+		sb.WriteString(fmt.Sprintf("%s\n%s\n", styleHeader.Render(hdr), styleSep.Render("  "+strings.Repeat("─", 81))))
 
 		for i, r := range top {
 			tlsIcon := "✗"
@@ -1156,25 +1299,26 @@ func (m AppModel) viewResults() string {
 				colo = "—"
 			}
 			rank := styleAccent.Render(fmt.Sprintf(" %2d. ", i+1))
-			line := fmt.Sprintf("%-18s  %6.1f%%  %9.2f  %8.2f  %9.1f  %5s  %-6s",
-				r.IP.String(), r.Loss(),
-				float64(r.Avg().Milliseconds()),
-				float64(r.Jitter().Milliseconds()),
+			line := fmt.Sprintf("%-18s  %6.1f  %6.1f%%  %9.2f  %8.2f  %9.1f  %5s  %-6s",
+				r.IP.String(), r.Score(), r.Loss(),
+				result.Ms(r.Avg()),
+				result.Ms(r.Jitter()),
 				r.Throughput/1024,
 				tlsIcon, colo)
 			sb.WriteString(fmt.Sprintf("%s%s\n", rank, styleGood.Render(line)))
 		}
 	}
 
-	total := len(m.scanResults)
-	healthy := 0
-	for _, r := range m.scanResults {
-		if r.IsHealthy() {
-			healthy++
-		}
+	// Counts come from the engine's authoritative counters rather than the
+	// stored slice, which intentionally holds only the healthy results.
+	total := m.scanStats.Tested
+	healthy := m.scanStats.Healthy
+	unhealthy := total - healthy
+	if unhealthy < 0 {
+		unhealthy = 0
 	}
 	sb.WriteString("\n")
-	sb.WriteString(styleDim.Render(fmt.Sprintf("  Total probed: %d   healthy: %d   unhealthy: %d\n", total, healthy, total-healthy)))
+	sb.WriteString(styleDim.Render(fmt.Sprintf("  Total probed: %d   healthy: %d   unhealthy: %d\n", total, healthy, unhealthy)))
 	if m.scanCfg.OutputFile != "" {
 		sb.WriteString(styleDim.Render(fmt.Sprintf("  Saved → %s\n", m.scanCfg.OutputFile)))
 	}
@@ -1182,7 +1326,12 @@ func (m AppModel) viewResults() string {
 	if m.statusMsg != "" {
 		sb.WriteString(styleGood.Render("  "+m.statusMsg) + "\n")
 	}
-	sb.WriteString(styleHint.Render("  s sort   c copy IPs   enter/q → home menu"))
+	if m.saveMode {
+		sb.WriteString(styleAccent.Render("  save → ") + m.saveInput.View() + "\n")
+		sb.WriteString(styleHint.Render("  filename .csv/.json/.txt   enter save   esc cancel"))
+		return sb.String()
+	}
+	sb.WriteString(styleHint.Render("  s sort   c copy IPs   w save as…   enter/q → home menu"))
 	return sb.String()
 }
 
@@ -1229,112 +1378,67 @@ func (m AppModel) viewAbout() string {
 }
 
 // ---------------------------------------------------------------------------
-// Exported helpers for non-TUI callers
+// Colo summary
 // ---------------------------------------------------------------------------
 
-// PrintTable prints a sorted results table to stdout.
-func PrintTable(results []*result.Result, top int) {
-	sorted := make([]*result.Result, len(results))
-	copy(sorted, results)
-	result.Sort(sorted, result.SortByAvg)
-	if top > 0 && top < len(sorted) {
-		sorted = sorted[:top]
-	}
-
-	hdr := fmt.Sprintf("  %-18s  %7s  %9s  %8s  %9s  %4s  %-5s",
-		"IP", "LOSS", "AVG(ms)", "JTR(ms)", "DL(KB/s)", "TLS", "COLO")
-	fmt.Println(hdr)
-	fmt.Println("  " + strings.Repeat("─", 72))
-	for _, r := range sorted {
-		tls := "✗"
-		if r.TLSOk {
-			tls = "✓"
-		}
-		colo := r.Colo
-		if colo == "" {
-			colo = "—"
-		}
-		fmt.Printf("  %-18s  %6.1f%%  %9.2f  %8.2f  %9.1f  %4s  %-5s\n",
-			r.IP.String(), r.Loss(),
-			float64(r.Avg().Milliseconds()),
-			float64(r.Jitter().Milliseconds()),
-			r.Throughput/1024,
-			tls, colo)
-	}
-	fmt.Println()
-}
-
-// SimpleProgress prints a one-liner progress update.
-func SimpleProgress(tested, healthy, total int64) {
-	if total > 0 {
-		fmt.Printf("\r  tested: %d/%d (%.0f%%)  healthy: %d",
-			tested, total, float64(tested)/float64(total)*100, healthy)
-	} else {
-		fmt.Printf("\r  tested: %d  healthy: %d", tested, healthy)
-	}
-}
-
-// PrintColoTableBuf writes a colo summary into sb.
+// PrintColoTableBuf writes a per-PoP (colo) summary into sb, sorted by the
+// best latency seen in each colo.
 func PrintColoTableBuf(sb *strings.Builder, results []*result.Result) {
-	type cs struct {
+	type coloStats struct {
 		count  int
-		avgSum int64
-		bestMS int64
+		avgSum time.Duration
+		best   time.Duration
 		bestIP string
 	}
-	byC := map[string]*cs{}
+	byColo := map[string]*coloStats{}
 	for _, r := range results {
 		if !r.IsHealthy() || r.Colo == "" {
 			continue
 		}
-		s, ok := byC[r.Colo]
+		avg := r.Avg()
+		s, ok := byColo[r.Colo]
 		if !ok {
-			s = &cs{bestMS: r.Avg().Milliseconds(), bestIP: r.IP.String()}
-			byC[r.Colo] = s
+			s = &coloStats{best: avg, bestIP: r.IP.String()}
+			byColo[r.Colo] = s
 		}
 		s.count++
-		s.avgSum += r.Avg().Milliseconds()
-		if r.Avg().Milliseconds() < s.bestMS {
-			s.bestMS = r.Avg().Milliseconds()
+		s.avgSum += avg
+		if avg < s.best {
+			s.best = avg
 			s.bestIP = r.IP.String()
 		}
 	}
-	if len(byC) == 0 {
+	if len(byColo) == 0 {
 		sb.WriteString(styleDim.Render("  No colos discovered yet…\n"))
 		return
 	}
+
 	type row struct {
-		colo   string
-		count  int
-		avgMs  float64
-		bestMs int64
-		bestIP string
+		colo          string
+		count         int
+		avgMs, bestMs float64
+		bestIP        string
 	}
-	var rows []row
-	for colo, s := range byC {
-		rows = append(rows, row{colo, s.count, float64(s.avgSum) / float64(s.count), s.bestMS, s.bestIP})
+	rows := make([]row, 0, len(byColo))
+	for colo, s := range byColo {
+		rows = append(rows, row{
+			colo:   colo,
+			count:  s.count,
+			avgMs:  result.Ms(s.avgSum) / float64(s.count),
+			bestMs: result.Ms(s.best),
+			bestIP: s.bestIP,
+		})
 	}
-	// sort by bestMs
-	for i := 1; i < len(rows); i++ {
-		for j := i; j > 0 && rows[j].bestMs < rows[j-1].bestMs; j-- {
-			rows[j], rows[j-1] = rows[j-1], rows[j]
-		}
-	}
+	sort.Slice(rows, func(i, j int) bool { return rows[i].bestMs < rows[j].bestMs })
+
 	sb.WriteString(styleHeader.Render(fmt.Sprintf("  %-6s  %6s  %9s  %9s  %s\n",
 		"COLO", "COUNT", "AVG(ms)", "BEST(ms)", "BEST IP")))
 	sb.WriteString(styleSep.Render("  " + strings.Repeat("─", 52) + "\n"))
 	for _, r := range rows {
-		line := fmt.Sprintf("  %-6s  %6d  %9.2f  %9d  %s\n",
+		line := fmt.Sprintf("  %-6s  %6d  %9.2f  %9.2f  %s\n",
 			r.colo, r.count, r.avgMs, r.bestMs, r.bestIP)
 		sb.WriteString(styleGood.Render(line))
 	}
-}
-
-// ColoTable prints colo summary to stdout.
-func ColoTable(results []*result.Result) {
-	var sb strings.Builder
-	PrintColoTableBuf(&sb, results)
-	fmt.Print(sb.String())
 }
 
 // ---------------------------------------------------------------------------
@@ -1351,11 +1455,4 @@ func tick() tea.Cmd {
 	return tea.Tick(80*time.Millisecond, func(t time.Time) tea.Msg {
 		return tickMsg(t)
 	})
-}
-
-func minInt(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }

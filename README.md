@@ -30,9 +30,10 @@ Run `senpaiscanner` and you land in a menu. From there you navigate everything w
 The scanner:
 - Probes Cloudflare's IP ranges via **TCP**, **TLS handshake**, or **HTTP** validation (`http` / `https` in Custom Scan)
 - In **TCP/TLS** mode with empty SNI, rotates through several well-known Cloudflare hostnames per try; **HTTP** mode uses `speed.cloudflare.com` for trace and download
-- Measures latency, packet loss, jitter, and (in HTTP mode) a small download throughput sample
+- Measures latency, packet loss, jitter, composite score, and (in HTTP mode) a bounded multi-stream download sample
 - Identifies the colo (Cloudflare PoP) behind each IP via `/cdn-cgi/trace` (with `CF-Ray` fallback)
-- Shows live results in a color-coded table; after a scan, a **Results** screen lists the top healthy IPs
+- Shows live results in a color-coded table; after a scan, a **Results** screen lists the top healthy IPs by score
+- Persists a SQLite leaderboard and warm-starts future scans with previously good IPs
 - Writes **CSV, JSON, or TXT** only when you set an output path in **Custom Scan** (other modes are on-screen only)
 
 ---
@@ -84,13 +85,21 @@ go install github.com/matinsenpai/senpaiscanner/cmd/senpaiscanner@latest
 ## Usage
 
 ```bash
-senpaiscanner              # open the TUI
-senpaiscanner --version    # print version and exit
+senpaiscanner                      # open the TUI
+senpaiscanner web                  # open the local Web UI on 127.0.0.1:8787
+senpaiscanner web --web-port 8788  # change the port
+senpaiscanner web --web-host 0.0.0.0 --web-port 8080  # expose on the LAN
+senpaiscanner web --addr 127.0.0.1:9000               # full host:port override
+senpaiscanner --version            # print version and exit
 senpaiscanner -v           # same
 senpaiscanner version      # same
 ```
 
-Everything else is inside the TUI — there are no scan-related CLI flags.
+Everything else is inside the TUI or the local Web UI.
+
+### Web UI
+
+Run `senpaiscanner web` and open `http://127.0.0.1:8787`. The web console exposes the same TCP/TLS/HTTP scanner with live counters, score-sorted results, cancel, copy, and the persisted leaderboard.
 
 ### Navigation
 
@@ -154,6 +163,7 @@ A form where you configure:
 | SNI | (empty) | override hostname; empty = rotate (TCP/TLS) or `speed.cloudflare.com` (HTTP) |
 | Mode | HTTP | `http` (or `https`), `tls`, or `tcp` — cycle with **Ctrl+← / Ctrl+→** |
 | IPv4 / IPv6 | v4 on | toggle with F2 / F3 |
+| Profile | Turbo | toggle Turbo/Stealth jitter with F4 |
 
 Navigate fields with Tab / Shift+Tab (or ↑/↓). Press Enter to start. Timeout accepts Go durations like `1500ms` or `5s`; a plain number is treated as seconds.
 
@@ -177,7 +187,7 @@ Probes **300** random **IPv4** addresses via HTTP (`/cdn-cgi/trace` only — no 
 
 ### Results screen
 
-After Quick Scan or Custom Scan finishes, shows up to **20** healthy IPs (sorted by average latency). `s` re-sorts; `Enter` / `q` / `Esc` return to the main menu. There is no file export from this screen — use Custom Scan **Output** if you need a file.
+After Quick Scan or Custom Scan finishes, shows up to **20** healthy IPs (sorted by composite score). `s` re-sorts; `w` saves results; `Enter` / `q` / `Esc` return to the main menu.
 
 ### About
 
@@ -191,13 +201,13 @@ Only **Custom Scan** writes a file, when **Output** is set. Rows are appended in
 
 **CSV** (`.csv`):
 ```
-ip,loss_pct,avg_ms,min_ms,max_ms,jitter_ms,download_kbps,speed_tested,colo,tls_ok,http_status
-104.21.14.53,0.0,87.40,82.10,93.60,4.20,540.8,true,FRA,true,200
+ip,score,loss_pct,avg_ms,min_ms,max_ms,jitter_ms,download_kbps,speed_tested,colo,tls_ok,http_status
+104.21.14.53,91.8,0.0,87.40,82.10,93.60,4.20,540.8,true,FRA,true,200
 ```
 
-**JSON** (`.json`):
+**JSONL** (`.json`):
 ```json
-[{"ip":"104.21.14.53","loss_pct":0,"avg_ms":87.4,"download_kbps":540.8,"speed_tested":true,"colo":"FRA","tls_ok":true}]
+{"ip":"104.21.14.53","score":91.8,"loss_pct":0,"avg_ms":87.4,"download_kbps":540.8,"speed_tested":true,"colo":"FRA","tls_ok":true}
 ```
 
 **TXT** (`.txt`):
@@ -212,6 +222,10 @@ ip,loss_pct,avg_ms,min_ms,max_ms,jitter_ms,download_kbps,speed_tested,colo,tls_o
 **HTTP mode by default.** A clean TCP/TLS handshake can still fail once real data starts moving. HTTP mode confirms Cloudflare with `/cdn-cgi/trace` and takes a small download sample from `speed.cloudflare.com` through the candidate IP.
 
 **More tries = better loss estimate.** The default of 4 gives a rough picture. If your connection is particularly flaky, try Custom Scan with tries set to 6 or 8.
+
+**Turbo vs Stealth.** Turbo is the default and removes inter-try sleeps for much faster large scans. Stealth adds small jitter between tries for more cautious validation on DPI-sensitive links.
+
+**Leaderboard warm-start.** Healthy results are saved to a local SQLite leaderboard. Later scans retest those known-good IPs first, then continue into fresh random coverage.
 
 **0% loss is not enough.** For Iran, a "clean" IP should pass HTTP validation and show non-zero download throughput. When speed testing is active, `0 KB/s` is treated as unhealthy even if latency and loss look good.
 

@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SenPai Scanner</title>
+  <link rel="stylesheet" href="/assets/styles.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">SenPai Scanner <span id="version"></span></p>
+        <h1>Cloudflare IP Console</h1>
+      </div>
+      <div class="actions">
+        <button id="startBtn" class="primary">Start</button>
+        <button id="cancelBtn">Cancel</button>
+      </div>
+    </header>
+
+    <section class="workspace">
+      <form id="scanForm" class="panel controls">
+        <label>Count <input name="count" type="number" min="1" value="5000"></label>
+        <label>Workers <input name="concurrency" type="number" min="1" value="100"></label>
+        <label>Timeout <input name="timeout" value="3s"></label>
+        <label>Tries <input name="tries" type="number" min="1" value="4"></label>
+        <label>Port <input name="port" type="number" min="1" max="65535" value="443" list="cfPorts"></label>
+        <datalist id="cfPorts"></datalist>
+        <label>Mode
+          <select name="mode">
+            <option value="http" selected>HTTP</option>
+            <option value="tls">TLS</option>
+            <option value="tcp">TCP</option>
+          </select>
+        </label>
+        <label>CIDR <input name="cidr" placeholder="optional"></label>
+        <label>SNI <input name="sni" placeholder="auto"></label>
+        <div class="toggles">
+          <label><input name="use_v4" type="checkbox" checked> IPv4</label>
+          <label><input name="use_v6" type="checkbox"> IPv6</label>
+          <label><input name="stealth" type="checkbox"> Stealth</label>
+          <label title="Two-phase: cheap TCP ping first, validate only survivors"><input name="fast" type="checkbox"> Fast</label>
+          <label title="Adapt each probe's timeout to recent latency"><input name="adaptive" type="checkbox"> Adaptive</label>
+        </div>
+      </form>
+
+      <section class="metrics">
+        <div class="metric"><span>Tested</span><strong id="tested">0</strong></div>
+        <div class="metric"><span>Healthy</span><strong id="healthy">0</strong></div>
+        <div class="metric"><span>Failed</span><strong id="failed">0</strong></div>
+        <div class="metric"><span>Rate</span><strong id="rate">0/s</strong></div>
+      </section>
+    </section>
+
+    <div class="progress"><span id="progressBar"></span></div>
+    <p id="status" class="status">Idle</p>
+
+    <section class="tables">
+      <section class="panel tablePanel">
+        <div class="tableTitle">
+          <h2>Live Results</h2>
+          <button id="copyBtn">Copy IPs</button>
+        </div>
+        <div class="tableWrap">
+          <table>
+            <thead>
+              <tr><th>IP</th><th>Score</th><th>Loss</th><th>Avg</th><th>Jitter</th><th>Speed</th><th>Colo</th></tr>
+            </thead>
+            <tbody id="resultsBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel tablePanel">
+        <div class="tableTitle">
+          <h2>Leaderboard</h2>
+          <button id="refreshBtn">Refresh</button>
+        </div>
+        <div class="tableWrap">
+          <table>
+            <thead>
+              <tr><th>IP</th><th>Score</th><th>Avg</th><th>Speed</th><th>Colo</th><th>Seen</th></tr>
+            </thead>
+            <tbody id="leaderboardBody"></tbody>
+          </table>
+        </div>
+      </section>
+    </section>
+  </main>
+  <script src="/assets/app.js"></script>
+</body>
+</html>

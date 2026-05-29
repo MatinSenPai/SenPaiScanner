@@ -52,6 +52,10 @@ logs/
 
 # Runtime state / output
 .senpaiscanner-state.json
+senpaiscanner_leaderboard.db
+leaderboard.db
+*.db-wal
+*.db-shm
 results/
 *.csv
 *.json

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -41,25 +42,25 @@ func DetectFormat(path string) Format {
 // mid-scan. Readers can parse it with standard JSON streaming libraries or a
 // simple line-by-line loop.
 type Writer struct {
-	mu  sync.Mutex
-	f   *os.File
-	fmt Format
-	csv *csv.Writer
+	mu     sync.Mutex
+	f      *os.File
+	format Format
+	csv    *csv.Writer
 }
 
 // New creates (or truncates) the output file and returns a ready Writer.
-func New(path string, fmt Format) (*Writer, error) {
+func New(path string, format Format) (*Writer, error) {
 	f, err := os.Create(path)
 	if err != nil {
-		return nil, fmt2err(path, err)
+		return nil, fmt.Errorf("opening output file %q: %w", path, err)
 	}
 
-	w := &Writer{f: f, fmt: fmt}
+	w := &Writer{f: f, format: format}
 
-	if fmt == FormatCSV {
+	if format == FormatCSV {
 		w.csv = csv.NewWriter(f)
 		_ = w.csv.Write([]string{
-			"ip", "loss_pct", "avg_ms", "min_ms", "max_ms",
+			"ip", "score", "loss_pct", "avg_ms", "min_ms", "max_ms",
 			"jitter_ms", "download_kbps", "speed_tested", "colo", "tls_ok", "http_status",
 		})
 		w.csv.Flush()
@@ -73,13 +74,13 @@ func (w *Writer) Write(r *result.Result) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	switch w.fmt {
-	case FormatCSV:
-		return w.writeCSV(r)
+	switch w.format {
 	case FormatJSON:
 		return w.writeJSON(r)
-	default:
+	case FormatTXT:
 		return w.writeTXT(r)
+	default:
+		return w.writeCSV(r)
 	}
 }
 
@@ -97,18 +98,19 @@ func (w *Writer) Close() error {
 func (w *Writer) writeCSV(r *result.Result) error {
 	row := []string{
 		r.IP.String(),
+		fmt.Sprintf("%.1f", r.Score()),
 		fmt.Sprintf("%.1f", r.Loss()),
-		fmt.Sprintf("%.2f", float64(r.Avg().Milliseconds())),
-		fmt.Sprintf("%.2f", float64(r.Min().Milliseconds())),
-		fmt.Sprintf("%.2f", float64(r.Max().Milliseconds())),
-		fmt.Sprintf("%.2f", float64(r.Jitter().Milliseconds())),
+		fmt.Sprintf("%.2f", result.Ms(r.Avg())),
+		fmt.Sprintf("%.2f", result.Ms(r.Min())),
+		fmt.Sprintf("%.2f", result.Ms(r.Max())),
+		fmt.Sprintf("%.2f", result.Ms(r.Jitter())),
 		fmt.Sprintf("%.1f", r.Throughput/1024),
-		boolStr(r.SpeedTested),
+		strconv.FormatBool(r.SpeedTested),
 		r.Colo,
-		boolStr(r.TLSOk),
-		fmt.Sprintf("%d", r.HTTPStatus),
+		strconv.FormatBool(r.TLSOk),
+		strconv.Itoa(r.HTTPStatus),
 	}
-	w.csv.Write(row)
+	_ = w.csv.Write(row)
 	w.csv.Flush()
 	return w.csv.Error()
 }
@@ -117,6 +119,7 @@ func (w *Writer) writeCSV(r *result.Result) error {
 func (w *Writer) writeJSON(r *result.Result) error {
 	type jsonResult struct {
 		IP          string  `json:"ip"`
+		Score       float64 `json:"score"`
 		LossPct     float64 `json:"loss_pct"`
 		AvgMs       float64 `json:"avg_ms"`
 		MinMs       float64 `json:"min_ms"`
@@ -130,11 +133,12 @@ func (w *Writer) writeJSON(r *result.Result) error {
 	}
 	obj := jsonResult{
 		IP:          r.IP.String(),
+		Score:       r.Score(),
 		LossPct:     r.Loss(),
-		AvgMs:       ms(r.Avg()),
-		MinMs:       ms(r.Min()),
-		MaxMs:       ms(r.Max()),
-		JitterMs:    ms(r.Jitter()),
+		AvgMs:       result.Ms(r.Avg()),
+		MinMs:       result.Ms(r.Min()),
+		MaxMs:       result.Ms(r.Max()),
+		JitterMs:    result.Ms(r.Jitter()),
 		DownloadKB:  r.Throughput / 1024,
 		SpeedTested: r.SpeedTested,
 		Colo:        r.Colo,
@@ -155,21 +159,4 @@ func (w *Writer) writeTXT(r *result.Result) error {
 	// proxy / VPN tools (Xray, Sing-Box, etc.) without editing.
 	_, err := w.f.WriteString(r.IP.String() + "\n")
 	return err
-}
-
-// --- helpers -----------------------------------------------------------------
-
-func ms(d interface{ Milliseconds() int64 }) float64 {
-	return float64(d.Milliseconds())
-}
-
-func boolStr(b bool) string {
-	if b {
-		return "true"
-	}
-	return "false"
-}
-
-func fmt2err(path string, err error) error {
-	return fmt.Errorf("opening output file %q: %w", path, err)
 }

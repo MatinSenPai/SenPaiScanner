@@ -33,6 +33,10 @@ jobs:
         run: go build -trimpath ./...
 
       - name: Test
+        run: go test -short ./...
+
+      - name: Race test
+        if: matrix.os == 'ubuntu-latest'
         run: go test -short -race ./...
 
   lint:

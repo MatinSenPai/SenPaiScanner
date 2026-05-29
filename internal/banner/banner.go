@@ -2,6 +2,7 @@ package banner
 
 import (
 	"strings"
+	"sync"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -33,31 +34,43 @@ var rainbowPalette = []string{
 	"#7B6FFF", "#B066FF", "#FF66E0", "#FF4CA8", "#FF4C6E",
 }
 
-// Render applies a rainbow gradient to the ASCII art.
-// frame controls the color offset for animation — increment it each tick.
-func Render(frame int) string {
-	lines := strings.Split(Art, "\n")
-	var out strings.Builder
+// The gradient repeats every len(rainbowPalette) columns, so a frame's output
+// depends only on frame mod len(rainbowPalette). All distinct frames are
+// rendered once and cached; animation is then a constant-time slice lookup
+// instead of thousands of per-rune style allocations per tick.
+var (
+	frameOnce  sync.Once
+	frameCache []string
+)
 
-	for _, line := range lines {
-		runes := []rune(line)
-		for col, r := range runes {
-			idx := ((col + frame) % len(rainbowPalette) + len(rainbowPalette)) % len(rainbowPalette)
-			style := lipgloss.NewStyle().Foreground(lipgloss.Color(rainbowPalette[idx])).Bold(true)
-			out.WriteString(style.Render(string(r)))
-		}
-		out.WriteRune('\n')
+func buildFrames() {
+	n := len(rainbowPalette)
+	styles := make([]lipgloss.Style, n)
+	for i, c := range rainbowPalette {
+		styles[i] = lipgloss.NewStyle().Foreground(lipgloss.Color(c)).Bold(true)
 	}
+	tagline := lipgloss.NewStyle().Foreground(lipgloss.Color("#555555")).Italic(true).Render(Tagline)
 
-	dim := lipgloss.NewStyle().Foreground(lipgloss.Color("#555555")).Italic(true)
-	out.WriteString(dim.Render(Tagline))
-	out.WriteRune('\n')
-
-	return out.String()
+	lines := strings.Split(Art, "\n")
+	frameCache = make([]string, n)
+	for f := 0; f < n; f++ {
+		var out strings.Builder
+		for _, line := range lines {
+			for col, r := range []rune(line) {
+				out.WriteString(styles[(col+f)%n].Render(string(r)))
+			}
+			out.WriteRune('\n')
+		}
+		out.WriteString(tagline)
+		out.WriteRune('\n')
+		frameCache[f] = out.String()
+	}
 }
 
-// Version returns a static (non-animated) render at frame=0, suitable for
-// non-TUI contexts like `--version`.
-func RenderStatic() string {
-	return Render(0)
+// Render returns the rainbow-gradient ASCII art for the given animation frame.
+// Increment frame each tick to animate the color cycle.
+func Render(frame int) string {
+	frameOnce.Do(buildFrames)
+	n := len(frameCache)
+	return frameCache[((frame%n)+n)%n]
 }

@@ -3,12 +3,17 @@ package prober
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"io"
-	"math/rand"
+	"math/rand/v2"
 	"net"
 	"net/http"
+	"net/http/httptrace"
+	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/matinsenpai/senpaiscanner/internal/result"
@@ -32,7 +37,26 @@ type Config struct {
 	Timeout    time.Duration
 	SNI        string // empty = rotate automatically
 	SpeedBytes int64  // optional HTTP download sample size; 0 disables it
+
+	// SpeedStreams splits the optional download sample over parallel HTTP
+	// requests. Values <=0 default to 1. A small value (2-4) better represents
+	// proxy throughput on throttled networks without turning a scan into a full
+	// speed test.
+	SpeedStreams int
+
+	// SpeedDuration caps the optional download sample. Zero uses Timeout.
+	SpeedDuration time.Duration
+
+	// Jitter is the upper bound of a random pause inserted between tries to
+	// look less like a sequential scanner. Zero (the default) disables it —
+	// "turbo" mode, which is dramatically faster on large scans because the
+	// per-try sleep dominates wall-clock time for fast IPs. Set it to a small
+	// value (tens of ms) for a "stealth" pass on DPI-sensitive networks.
+	Jitter time.Duration
 }
+
+// StealthJitter is the recommended inter-try pause for a low-profile scan.
+const StealthJitter = 60 * time.Millisecond
 
 // Mode selects the probe type.
 type Mode int
@@ -70,12 +94,19 @@ func ParseMode(s string) (Mode, error) {
 
 // Probe runs a full measurement session against ip and returns a Result.
 func Probe(ctx context.Context, ip net.IP, cfg Config) *result.Result {
+	if cfg.Tries <= 0 {
+		cfg.Tries = 1
+	}
+	if cfg.Port <= 0 {
+		cfg.Port = 443
+	}
 	r := &result.Result{
 		IP:        ip,
 		Port:      cfg.Port,
 		ProbeMode: cfg.Mode.String(),
 		Timestamp: time.Now(),
 		Latencies: make([]time.Duration, cfg.Tries),
+		Errors:    make([]result.ProbeError, cfg.Tries),
 	}
 	if cfg.Mode == ModeHTTP && cfg.SpeedBytes > 0 {
 		r.SpeedTested = true
@@ -89,7 +120,7 @@ func Probe(ctx context.Context, ip net.IP, cfg Config) *result.Result {
 		if sni == "" && cfg.Mode == ModeHTTP {
 			sni = "speed.cloudflare.com"
 		} else if sni == "" {
-			sni = sniHostnames[rand.Intn(len(sniHostnames))]
+			sni = sniHostnames[rand.IntN(len(sniHostnames))]
 		}
 
 		var lat time.Duration
@@ -97,17 +128,19 @@ func Probe(ctx context.Context, ip net.IP, cfg Config) *result.Result {
 		var httpStatus int
 		var colo string
 		var throughput float64
+		var perr result.ProbeError
 
 		switch cfg.Mode {
 		case ModeTCP:
-			lat = probeTCP(ctx, ip, cfg.Port, cfg.Timeout)
+			lat, perr = probeTCP(ctx, ip, cfg.Port, cfg.Timeout)
 		case ModeTLS:
-			lat, tlsOk = probeTLS(ctx, ip, cfg.Port, sni, cfg.Timeout)
+			lat, tlsOk, perr = probeTLS(ctx, ip, cfg.Port, sni, cfg.Timeout)
 		case ModeHTTP:
-			lat, tlsOk, httpStatus, colo, throughput = probeHTTP(ctx, ip, cfg.Port, sni, cfg.Timeout, cfg.SpeedBytes)
+			lat, tlsOk, httpStatus, colo, throughput, perr = probeHTTP(ctx, ip, cfg.Port, sni, cfg.Timeout, cfg.SpeedBytes, cfg.SpeedStreams, cfg.SpeedDuration)
 		}
 
 		r.Latencies[i] = lat
+		r.Errors[i] = perr
 		if tlsOk {
 			r.TLSOk = true
 		}
@@ -121,12 +154,13 @@ func Probe(ctx context.Context, ip net.IP, cfg Config) *result.Result {
 			r.Throughput = throughput
 		}
 
-		// Small jitter between tries to avoid looking like a scanner
-		if i < cfg.Tries-1 {
-			jitter := time.Duration(rand.Intn(50)+10) * time.Millisecond
+		// Optional jitter between tries to avoid looking like a scanner. Skipped
+		// entirely in turbo mode (cfg.Jitter == 0), which is the default.
+		if i < cfg.Tries-1 && cfg.Jitter > 0 {
+			pause := time.Duration(rand.Int64N(int64(cfg.Jitter)))
 			select {
 			case <-ctx.Done():
-			case <-time.After(jitter):
+			case <-time.After(pause):
 			}
 		}
 	}
@@ -135,8 +169,8 @@ func Probe(ctx context.Context, ip net.IP, cfg Config) *result.Result {
 }
 
 // probeTCP measures a raw TCP connect time.
-func probeTCP(ctx context.Context, ip net.IP, port int, timeout time.Duration) time.Duration {
-	addr := fmt.Sprintf("%s:%d", ip.String(), port)
+func probeTCP(ctx context.Context, ip net.IP, port int, timeout time.Duration) (time.Duration, result.ProbeError) {
+	addr := ipPort(ip, port)
 	dl := time.Now().Add(timeout)
 	dialCtx, cancel := context.WithDeadline(ctx, dl)
 	defer cancel()
@@ -145,16 +179,16 @@ func probeTCP(ctx context.Context, ip net.IP, port int, timeout time.Duration) t
 	start := time.Now()
 	conn, err := d.DialContext(dialCtx, "tcp", addr)
 	if err != nil {
-		return 0
+		return 0, classifyErr(err)
 	}
 	lat := time.Since(start)
 	conn.Close()
-	return lat
+	return lat, result.ErrNone
 }
 
 // probeTLS measures a TLS handshake time.
-func probeTLS(ctx context.Context, ip net.IP, port int, sni string, timeout time.Duration) (time.Duration, bool) {
-	addr := fmt.Sprintf("%s:%d", ip.String(), port)
+func probeTLS(ctx context.Context, ip net.IP, port int, sni string, timeout time.Duration) (time.Duration, bool, result.ProbeError) {
+	addr := ipPort(ip, port)
 	dl := time.Now().Add(timeout)
 	dialCtx, cancel := context.WithDeadline(ctx, dl)
 	defer cancel()
@@ -171,19 +205,19 @@ func probeTLS(ctx context.Context, ip net.IP, port int, sni string, timeout time
 	start := time.Now()
 	conn, err := d.DialContext(dialCtx, "tcp", addr)
 	if err != nil {
-		return 0, false
+		return 0, false, classifyErr(err)
 	}
 	lat := time.Since(start)
 	conn.Close()
-	return lat, true
+	return lat, true, result.ErrNone
 }
 
 // probeHTTP fetches /cdn-cgi/trace to confirm the IP is a real Cloudflare edge
 // and to determine the colo identifier.
-func probeHTTP(ctx context.Context, ip net.IP, port int, sni string, timeout time.Duration, speedBytes int64) (
-	lat time.Duration, tlsOk bool, httpStatus int, colo string, throughput float64,
+func probeHTTP(ctx context.Context, ip net.IP, port int, sni string, timeout time.Duration, speedBytes int64, speedStreams int, speedDuration time.Duration) (
+	lat time.Duration, tlsOk bool, httpStatus int, colo string, throughput float64, perr result.ProbeError,
 ) {
-	addr := fmt.Sprintf("%s:%d", ip.String(), port)
+	addr := ipPort(ip, port)
 
 	// Budget split: TCP gets ¼, TLS gets ½, leaving ¼ guaranteed for the HTTP
 	// GET+response. Without this, on DPI-throttled networks the TLS handshake
@@ -207,13 +241,14 @@ func probeHTTP(ctx context.Context, ip net.IP, port int, sni string, timeout tim
 	}
 
 	scheme := "https"
-	if port == 80 {
+	if isCleartextPort(port) {
 		scheme = "http"
 	}
 	url := fmt.Sprintf("%s://%s/cdn-cgi/trace", scheme, sni)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
+		perr = result.ErrOther
 		return
 	}
 	req.Header.Set("User-Agent", "senpaiscanner/1.0")
@@ -221,7 +256,7 @@ func probeHTTP(ctx context.Context, ip net.IP, port int, sni string, timeout tim
 	start := time.Now()
 	resp, err := client.Do(req)
 	if err != nil {
-		return 0, false, 0, "", 0
+		return 0, false, 0, "", 0, classifyErr(err)
 	}
 	lat = time.Since(start)
 	defer resp.Body.Close()
@@ -235,7 +270,12 @@ func probeHTTP(ctx context.Context, ip net.IP, port int, sni string, timeout tim
 		colo = traceColo
 	}
 	if speedBytes > 0 && httpStatus >= 200 && httpStatus < 400 && colo != "" {
-		throughput = probeDownload(ctx, ip, port, timeout, speedBytes)
+		throughput = probeDownload(ctx, ip, port, timeout, speedBytes, speedStreams, speedDuration)
+	}
+	// The connection succeeded but, if the response isn't a healthy Cloudflare
+	// edge trace, record it as an HTTP-class failure rather than a clean success.
+	if httpStatus < 200 || httpStatus >= 400 || colo == "" {
+		perr = result.ErrHTTP
 	}
 	return
 }
@@ -243,55 +283,165 @@ func probeHTTP(ctx context.Context, ip net.IP, port int, sni string, timeout tim
 // probeDownload fetches a small sample from speed.cloudflare.com while forcing
 // the TCP connection to the candidate IP. This is still not a full Xray/V2Ray
 // test, but it catches many IPs that handshake cleanly and then stall on data.
-func probeDownload(ctx context.Context, ip net.IP, port int, timeout time.Duration, bytes int64) float64 {
+func probeDownload(ctx context.Context, ip net.IP, port int, timeout time.Duration, bytes int64, streams int, duration time.Duration) float64 {
 	if bytes <= 0 {
 		return 0
 	}
-
-	addr := fmt.Sprintf("%s:%d", ip.String(), port)
-	transport := &http.Transport{
-		DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
-			return (&net.Dialer{Timeout: timeout / 4}).DialContext(ctx, network, addr)
-		},
-		TLSClientConfig: &tls.Config{
-			ServerName: "speed.cloudflare.com",
-			MinVersion: tls.VersionTLS12,
-		},
-		DisableKeepAlives:   true,
-		TLSHandshakeTimeout: timeout / 2,
+	if streams <= 0 {
+		streams = 1
 	}
-	client := &http.Client{Timeout: timeout, Transport: transport}
+	if streams > 8 {
+		streams = 8
+	}
+	if duration <= 0 || duration > timeout {
+		duration = timeout
+	}
 
+	ctx, cancel := context.WithTimeout(ctx, duration)
+	defer cancel()
+
+	addr := ipPort(ip, port)
 	scheme := "https"
-	if port == 80 {
+	if isCleartextPort(port) {
 		scheme = "http"
 	}
-	url := fmt.Sprintf("%s://speed.cloudflare.com/__down?bytes=%d", scheme, bytes)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return 0
-	}
-	req.Header.Set("User-Agent", "senpaiscanner/1.0")
 
 	start := time.Now()
-	resp, err := client.Do(req)
-	if err != nil {
-		return 0
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 400 {
-		return 0
+	var total atomic.Int64
+
+	// firstByte holds the unix-nanos timestamp of the earliest first response
+	// byte across all streams (0 = none yet). Measuring throughput from this
+	// point — rather than from before the TCP+TLS handshake — excludes connection
+	// setup, which otherwise makes a fast link look slow on small samples.
+	var firstByte atomic.Int64
+	markFirstByte := func() {
+		now := time.Now().UnixNano()
+		for {
+			cur := firstByte.Load()
+			if cur != 0 && cur <= now {
+				return
+			}
+			if firstByte.CompareAndSwap(cur, now) {
+				return
+			}
+		}
 	}
 
-	n, err := io.Copy(io.Discard, io.LimitReader(resp.Body, bytes))
-	if err != nil || n <= 0 {
+	var wg sync.WaitGroup
+	perStream := bytes / int64(streams)
+	if perStream <= 0 {
+		perStream = bytes
+		streams = 1
+	}
+
+	for i := 0; i < streams; i++ {
+		want := perStream
+		if i == streams-1 {
+			want += bytes - perStream*int64(streams)
+		}
+		wg.Add(1)
+		go func(want int64) {
+			defer wg.Done()
+			transport := &http.Transport{
+				DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
+					return (&net.Dialer{Timeout: timeout / 4}).DialContext(ctx, network, addr)
+				},
+				TLSClientConfig: &tls.Config{
+					ServerName: "speed.cloudflare.com",
+					MinVersion: tls.VersionTLS12,
+				},
+				DisableKeepAlives:   true,
+				TLSHandshakeTimeout: timeout / 2,
+			}
+			defer transport.CloseIdleConnections()
+
+			client := &http.Client{Timeout: duration, Transport: transport}
+			url := fmt.Sprintf("%s://speed.cloudflare.com/__down?bytes=%d", scheme, want)
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+			if err != nil {
+				return
+			}
+			req.Header.Set("User-Agent", "senpaiscanner/1.0")
+			trace := &httptrace.ClientTrace{GotFirstResponseByte: markFirstByte}
+			req = req.WithContext(httptrace.WithClientTrace(req.Context(), trace))
+
+			resp, err := client.Do(req)
+			if err != nil {
+				return
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode < 200 || resp.StatusCode >= 400 {
+				return
+			}
+
+			n, err := io.Copy(io.Discard, io.LimitReader(resp.Body, want))
+			if err == nil && n > 0 {
+				total.Add(n)
+			}
+		}(want)
+	}
+	wg.Wait()
+
+	end := time.Now()
+	var fbTime time.Time
+	if fb := firstByte.Load(); fb != 0 {
+		fbTime = time.Unix(0, fb)
+	}
+	return throughputBps(total.Load(), start, fbTime, end)
+}
+
+// throughputBps computes bytes/sec over the data-transfer window. It prefers the
+// span from the first received byte to the end (excluding TCP+TLS setup) and
+// falls back to start→end when no first byte was observed. Extracted as a pure
+// function so the timing logic can be unit-tested without the network.
+func throughputBps(n int64, start, firstByte, end time.Time) float64 {
+	if n <= 0 {
 		return 0
 	}
-	elapsed := time.Since(start).Seconds()
+	elapsed := end.Sub(start).Seconds()
+	if !firstByte.IsZero() {
+		if dl := end.Sub(firstByte).Seconds(); dl > 0 {
+			elapsed = dl
+		}
+	}
 	if elapsed <= 0 {
 		return 0
 	}
 	return float64(n) / elapsed
+}
+
+// classifyErr maps a network/transport error to a result.ProbeError class.
+//
+// It deliberately leans on net.Error.Timeout and substring matching rather than
+// platform-specific syscall constants (ECONNREFUSED is WSAECONNREFUSED on
+// Windows, etc.), so the classification stays correct across OSes without build
+// tags.
+func classifyErr(err error) result.ProbeError {
+	if err == nil {
+		return result.ErrNone
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return result.ErrTimeout
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return result.ErrTimeout
+	}
+	msg := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(msg, "refused"):
+		return result.ErrRefused
+	case strings.Contains(msg, "reset"):
+		return result.ErrReset
+	case strings.Contains(msg, "tls"),
+		strings.Contains(msg, "certificate"),
+		strings.Contains(msg, "handshake"):
+		return result.ErrTLS
+	case strings.Contains(msg, "timeout"), strings.Contains(msg, "deadline"):
+		return result.ErrTimeout
+	default:
+		return result.ErrOther
+	}
 }
 
 // parseColoCDN extracts the "colo" field from /cdn-cgi/trace responses.
@@ -302,6 +452,10 @@ func parseColoCDN(body string) string {
 		}
 	}
 	return ""
+}
+
+func ipPort(ip net.IP, port int) string {
+	return net.JoinHostPort(ip.String(), strconv.Itoa(port))
 }
 
 func parseColoRay(ray string) string {
