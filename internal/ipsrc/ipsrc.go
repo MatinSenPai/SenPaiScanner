@@ -10,7 +10,6 @@ import (
 	"net"
 	"net/http"
 	"strings"
-	"time"
 
 	_ "embed"
 )
@@ -36,7 +35,7 @@ type Source struct {
 // New builds a Source from the embedded Cloudflare ranges.
 func New(useV4, useV6 bool, extra []string) (*Source, error) {
 	s := &Source{
-		rng: rand.New(rand.NewSource(time.Now().UnixNano())),
+		rng: rand.New(rand.NewSource(rand.Int63())),
 	}
 
 	if useV4 {
