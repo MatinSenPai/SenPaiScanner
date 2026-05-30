@@ -179,3 +179,37 @@ func TestGenericScanCopyDoesNotExportHealthyIPs(t *testing.T) {
 		t.Fatalf("generic copy message = %q", got)
 	}
 }
+
+func TestConfigOptionalTypingTrojanURLKeepsURLInputFocused(t *testing.T) {
+	raw := "trojan://jkh-password@example.com:443?security=tls&type=ws&host=example.com&path=%2F#test"
+	m := NewApp("test")
+	m.page = PageConfigOptional
+	m.configOptionalRow = 0
+	m.configInput.Focus()
+
+	for _, r := range raw {
+		next, _ := m.handleConfigOptionalKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = next.(AppModel)
+	}
+
+	if got := m.configInput.Value(); got != raw {
+		t.Fatalf("config input = %q, want %q", got, raw)
+	}
+	if m.configOptionalRow != 0 {
+		t.Fatalf("config optional row = %d, want 0", m.configOptionalRow)
+	}
+}
+
+func TestConfigOptionalArrowDownStillMovesToTopN(t *testing.T) {
+	m := NewApp("test")
+	m.page = PageConfigOptional
+	m.configOptionalRow = 0
+	m.configInput.Focus()
+
+	next, _ := m.handleConfigOptionalKey(tea.KeyMsg{Type: tea.KeyDown})
+	m = next.(AppModel)
+
+	if m.configOptionalRow != 1 {
+		t.Fatalf("config optional row = %d, want 1", m.configOptionalRow)
+	}
+}

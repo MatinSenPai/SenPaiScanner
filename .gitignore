@@ -55,6 +55,7 @@ logs/
 results/
 *.csv
 *.json
+*.txt
 !testdata/**/*.json
 
 # Environment / secrets

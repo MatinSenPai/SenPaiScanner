@@ -235,8 +235,8 @@ type AppModel struct {
 	configCountCustom   string // value when Custom count is selected
 	configWorkersCustom string // value when Custom workers is selected
 	configTimeoutCustom string // value when Custom timeout is selected
-	configTopNCustom string // value when Custom top N is selected
-	configOptionalRow int   // 0=config URL, 1=validate top N
+	configTopNCustom    string // value when Custom top N is selected
+	configOptionalRow   int    // 0=config URL, 1=validate top N
 	configPortFocus     int
 	configSelectedPorts map[int]bool
 	// phase 1 state
@@ -2222,6 +2222,30 @@ func (m AppModel) handleConfigOptionalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 
+	if m.configOptionalRow == 0 {
+		switch msg.String() {
+		case "esc":
+			m.page = PageScanWithConfig
+			m.configInput.Blur()
+			return m, nil
+		case "down":
+			m.configOptionalRow = 1
+			m.configInput.Blur()
+			return m, nil
+		case "enter":
+			if strings.TrimSpace(m.configInput.Value()) == "" {
+				return m.launchPhase1FromOptional()
+			}
+			m.configOptionalRow = 1
+			m.configInput.Blur()
+			return m, nil
+		}
+
+		var cmd tea.Cmd
+		m.configInput, cmd = m.configInput.Update(msg)
+		return m, cmd
+	}
+
 	switch msg.String() {
 	case "esc":
 		m.page = PageScanWithConfig
@@ -2238,11 +2262,6 @@ func (m AppModel) handleConfigOptionalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "down", "j":
-		if m.configOptionalRow == 0 {
-			m.configOptionalRow = 1
-			m.configInput.Blur()
-			return m, nil
-		}
 		return m, nil
 	case "left", "h":
 		if m.configOptionalRow == 1 {
@@ -2276,12 +2295,6 @@ func (m AppModel) handleConfigOptionalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, textinput.Blink
 		}
 		return m.launchPhase1FromOptional()
-	}
-
-	if m.configOptionalRow == 0 {
-		var cmd tea.Cmd
-		m.configInput, cmd = m.configInput.Update(msg)
-		return m, cmd
 	}
 	return m, nil
 }
@@ -2621,7 +2634,7 @@ func (m AppModel) viewConfigPhase1() string {
 	}
 
 	if m.liveResultPath != "" {
-		sb.WriteString(styleDim.Render("  live results → "+m.liveResultPath+"\n\n"))
+		sb.WriteString(styleDim.Render("  live results → " + m.liveResultPath + "\n\n"))
 	}
 
 	if len(m.configPhase1Results) > 0 {
