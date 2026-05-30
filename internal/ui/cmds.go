@@ -459,6 +459,8 @@ func loadDefaultIPsFile() ([]net.IP, error) {
 }
 
 func loadIPs(path string) ([]net.IP, error) {
+	const maxCIDRExpandIPs = 1_000_000
+
 	var f *os.File
 	var err error
 	if path == "" || path == "-" {
@@ -478,11 +480,34 @@ func loadIPs(path string) ([]net.IP, error) {
 			continue
 		}
 		field := strings.SplitN(line, ",", 2)[0]
-		if ip := net.ParseIP(strings.TrimSpace(field)); ip != nil {
+		field = strings.TrimSpace(field)
+		if ip := net.ParseIP(field); ip != nil {
 			ips = append(ips, ip)
+			continue
+		}
+		if _, ipNet, cidrErr := net.ParseCIDR(field); cidrErr == nil {
+			if count, ok := cidrExpansionCount(ipNet); !ok || count > maxCIDRExpandIPs {
+				return nil, fmt.Errorf("CIDR %q is too large to expand in ips.txt; use the CIDR filter or Random source", field)
+			}
+			ch, err := ipsrc.FromCIDR(context.Background(), field)
+			if err != nil {
+				return nil, err
+			}
+			for ip := range ch {
+				ips = append(ips, ip)
+			}
 		}
 	}
 	return ips, sc.Err()
+}
+
+func cidrExpansionCount(ipNet *net.IPNet) (int, bool) {
+	ones, bits := ipNet.Mask.Size()
+	hostBits := bits - ones
+	if hostBits < 0 || hostBits > 20 {
+		return 0, false
+	}
+	return 1 << hostBits, true
 }
 
 func speedSampleForMode(mode prober.Mode) int64 {

@@ -100,6 +100,41 @@ func TestLoadDefaultIPsFileFindsWorkingDirectoryFile(t *testing.T) {
 	}
 }
 
+func TestLoadIPsExpandsCIDR(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "ips.txt")
+	contents := "192.0.2.0/30\n104.18.1.1\n"
+	if err := os.WriteFile(path, []byte(contents), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	ips, err := loadIPs(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ips) != 5 {
+		t.Fatalf("loaded %d IPs, want 5", len(ips))
+	}
+
+	want := map[string]bool{
+		"192.0.2.0":  true,
+		"192.0.2.1":  true,
+		"192.0.2.2":  true,
+		"192.0.2.3":  true,
+		"104.18.1.1": true,
+	}
+	for _, ip := range ips {
+		delete(want, ip.String())
+	}
+	if len(want) != 0 {
+		missing := make([]string, 0, len(want))
+		for ip := range want {
+			missing = append(missing, ip)
+		}
+		t.Fatalf("missing IPs: %s", strings.Join(missing, ","))
+	}
+}
+
 func TestWorkingIPsOnlyIncludesSuccessfulValidationResults(t *testing.T) {
 	got := workingIPs([]*xraytest.ValidationResult{
 		{IP: "104.18.1.1", Success: true},

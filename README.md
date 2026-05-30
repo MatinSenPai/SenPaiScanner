@@ -178,7 +178,7 @@ SenPai Scanner does not run a permanent proxy. It finds and validates Cloudflare
 Embedded from Cloudflare's official published lists (`cloudflare.com/ips-v4`, `cloudflare.com/ips-v6`). The binary ships with a snapshot; ranges rarely change.
 
 **"ips.txt not found" when using From File**
-Place `ips.txt` next to the executable or in your current working directory before starting. One IP per line; `#` comments and CSV lines (IP in the first column) are supported.
+Place `ips.txt` next to the executable or in your current working directory before starting. One IP or CIDR per line; `#` comments and CSV lines (IP/CIDR in the first column) are supported.
 
 **The scan feels slow with many ports selected**
 Each selected port is probed for every IP. Testing 5 ports on 5,000 IPs means 25,000 probes in Phase 1 — lower Count or narrow the port list if needed.
