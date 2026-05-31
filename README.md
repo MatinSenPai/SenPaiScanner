@@ -102,26 +102,40 @@ On the **Config URL** row, `←` / `→` move the text cursor; `Ctrl+A` / `Ctrl+
 
 Paste a **`vless://`** or **`trojan://`** share URL, adjust the setup rows, then start the scan.
 
-### Setup rows
+### Setup rows (Phase 1)
 
 | Row | Options | Notes |
 |---|---|---|
-| **Config** | paste URL | your VLESS/Trojan share link |
 | **Source** | Random / From File | random Cloudflare IPv4 ranges, or read candidates from `ips.txt` |
 | **Count** | 1,000 / 5,000 / 20,000 / Custom | IPs to probe in Phase 1; **ignored when Source is From File** |
 | **Workers** | 50 / 100 / 200 / Custom | parallel probers (default 50 — safe on restricted networks) |
 | **Timeout** | 2s / 3s / 5s / Custom | per-probe deadline (default 5s) |
 | **Ports** | Config, 443, 8443, 2053, 2083, 2087, 2096 | multi-select; each IP is tested on every selected port |
 
+Press **Enter** on the last row to continue to the optional config step.
+
+### Optional config (before scan starts)
+
+| Row | Options | Notes |
+|---|---|---|
+| **Config** | paste URL or leave empty | empty → **Phase 1 only** (standard HTTP probe); with URL → Phase 1 + Phase 2 |
+| **Top N** | 10 / 25 / 50 / 100 / All / Custom | how many Phase 1 hits to validate in Phase 2 (only when a config URL is set) |
+
+**Enter** with an empty config field starts a connectivity-only scan. Paste a URL, set **Top N**, then **Enter** again to run full validation.
+
+**Live results file:** every scan writes (and keeps updating) `SenPaiScannerResult-YYYYMMDD-HHMMSS.txt` next to the binary or in the working directory. Open it in any editor while the scan runs to watch results arrive.
+
+### Setup details
+
 **Source → From File:** place `ips.txt` (one IP per line) next to the binary or in the directory you run from. All listed IPs are probed on the selected ports; the Count row is ignored.
 
 **Ports row:** use `←` / `→` to focus a port pill, then **`Space`** or **`Enter`** to toggle it. Select **Config** alone to use the port from your URL. Selecting multiple ports multiplies Phase 1 work (IPs × ports).
 
-**Starting the scan:** `Enter` on the URL row moves to the next row. On Count, Workers, or Timeout, `Enter` on **Custom** opens a text field. From any other row, `Enter` starts Phase 1 (after validating the URL).
+**Starting the scan:** `Enter` on **Ports** opens the optional config screen. From there, `Enter` starts the scan (empty config = Phase 1 only).
 
 ### Phase 1 — Finding reachable IPs
 
-Probes use HTTP validation against Cloudflare's edge, with SNI/host/path taken from your config URL. For WebSocket configs, a WS upgrade probe is required for an IP to count as healthy. TLS certificate verification is skipped in this phase — Phase 2 validates through xray properly.
+Without a config URL, Phase 1 uses a standard Cloudflare HTTP probe (`speed.cloudflare.com`, 64 KiB sample). With a config URL, probes use SNI/host/path from your link and require WebSocket success when `type=ws`.
 
 Press `q` / `Esc` to cancel and return to the menu.
 

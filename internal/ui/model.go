@@ -224,24 +224,28 @@ type AppModel struct {
 	configURL      string
 	configCountIdx int // index into configCountValues
 	configTopNIdx  int // index into configTopNValues
-	configSetupRow int // 0=URL, 1=source, 2=count, 3=workers, 4=timeout, 5=ports
+	configSetupRow int // 0=source, 1=count, 2=workers, 3=timeout, 4=ports
 	// quick-scan-style pickers for Phase 1
 	configWorkersIdx    int
 	configTimeoutIdx    int
 	configIPMode        int // 0=random Cloudflare IPs, 1=from ips.txt
 	configCustomInput   textinput.Model
 	configCustomMode    bool
-	configCustomRow     int    // 1=count, 2=workers, 3=timeout
+	configCustomRow     int    // 1=count, 2=workers, 3=timeout, 5=topN custom
 	configCountCustom   string // value when Custom count is selected
 	configWorkersCustom string // value when Custom workers is selected
 	configTimeoutCustom string // value when Custom timeout is selected
+	configTopNCustom string // value when Custom top N is selected
+	configOptionalRow int   // 0=config URL, 1=validate top N
 	configPortFocus     int
 	configSelectedPorts map[int]bool
 	// phase 1 state
 	configPhase1Results []*result.Result
 	configPhase1Done    bool
+	configPhase1Only    bool // true when scan stops after Phase 1 (no config URL)
 	configPhase1Stats   StatsMsg
 	configPhase1Total   int // intended IP count for Phase 1 progress display
+	liveResultPath      string
 
 	// shared
 	statusMsg string
@@ -254,7 +258,7 @@ type menuEntry struct {
 }
 
 var menuEntries = []menuEntry{
-	{"Find Working IPs", "paste a config and test random Cloudflare IPs"},
+	{"Find Working IPs", "scan Cloudflare IPs — config optional"},
 	{"About", ""},
 	{"Quit", ""},
 }
@@ -433,17 +437,22 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case ConfigPhase1ErrMsg:
-		// File not found / unreadable — go back to setup with an error.
 		m.configScanning = false
+		clearLiveResultWriter()
 		m.page = PageScanWithConfig
 		m.statusMsg = msg.Err
-		m.configInput.Focus()
-		return m, textinput.Blink
+		return m, nil
 
 	case ConfigPhase1DoneMsg:
 		m.configPhase1Done = true
-		// Build the candidate list for Phase 2.
-		topN := configTopNValues[m.configTopNIdx]
+		if strings.TrimSpace(m.configURL) == "" {
+			m.configPhase1Only = true
+			if liveResultWriter != nil {
+				liveResultWriter.FinishPhase1Only()
+			}
+			return m, nil
+		}
+		topN := m.resolveTopN()
 		var topIPs []*result.Result
 		if topN == 0 {
 			topIPs = result.TopN(m.configPhase1Results, 0)
@@ -461,6 +470,9 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		// Start Phase 2 with top N IPs
+		if liveResultWriter != nil {
+			liveResultWriter.BeginPhase2()
+		}
 		m.page = PageConfigPhase2
 		m.configScanning = true
 		m.configDone = false
@@ -499,6 +511,8 @@ func (m AppModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case PageScanWithConfig:
 		return m.handleScanWithConfigKey(msg)
+	case PageConfigOptional:
+		return m.handleConfigOptionalKey(msg)
 	case PageConfigPhase1:
 		return m.handleConfigPhase1Key(msg)
 	case PageConfigPhase2:
@@ -530,13 +544,14 @@ func (m AppModel) selectMenuItem() (tea.Model, tea.Cmd) {
 	case menuFindWorking:
 		m.page = PageScanWithConfig
 		m.configInput.SetValue("")
-		m.configInput.Focus()
+		m.configInput.Blur()
 		m.configResults = nil
 		m.configScanning = false
 		m.configDone = false
 		m.configSetupRow = 0
+		m.configOptionalRow = 0
 		m.configCountIdx = 1   // default: 5,000
-		m.configTopNIdx = 2    // hidden default: validate top 50 precheck hits
+		m.configTopNIdx = 2    // default: 50 for Phase 2
 		m.configWorkersIdx = 0 // default: 50 workers (restricted-net safe)
 		m.configTimeoutIdx = 2 // default: 5s
 		m.configIPMode = 0     // default: random Cloudflare IPs
@@ -546,10 +561,15 @@ func (m AppModel) selectMenuItem() (tea.Model, tea.Cmd) {
 		m.configCountCustom = ""
 		m.configWorkersCustom = ""
 		m.configTimeoutCustom = ""
+		m.configTopNCustom = ""
 		m.configCustomInput.SetValue("")
 		m.configCustomInput.Blur()
+		m.configURL = ""
+		m.configPhase1Only = false
+		m.liveResultPath = ""
+		clearLiveResultWriter()
 		m.statusMsg = ""
-		return m, textinput.Blink
+		return m, nil
 	case menuAbout:
 		m.page = PageAbout
 	case menuQuit:
@@ -1053,8 +1073,15 @@ func (m AppModel) updateFormInputs(msg tea.Msg) (AppModel, tea.Cmd) {
 		}
 	}
 
-	// Forward paste / resize / blink messages to the config URL text input.
 	if m.page == PageScanWithConfig && !m.configScanning && !m.configDone {
+		if m.configCustomMode {
+			var cmd tea.Cmd
+			m.configCustomInput, cmd = m.configCustomInput.Update(msg)
+			cmds = append(cmds, cmd)
+		}
+	}
+
+	if m.page == PageConfigOptional {
 		if m.configCustomMode {
 			var cmd tea.Cmd
 			m.configCustomInput, cmd = m.configCustomInput.Update(msg)
@@ -1091,6 +1118,8 @@ func (m AppModel) View() string {
 		return m.viewAbout()
 	case PageScanWithConfig:
 		return m.viewScanWithConfig()
+	case PageConfigOptional:
+		return m.viewConfigOptional()
 	case PageConfigPhase1:
 		return m.viewConfigPhase1()
 	case PageConfigPhase2:
@@ -1746,7 +1775,7 @@ func (m AppModel) viewScanWithConfig() string {
 				} else {
 					label = "  " + label
 				}
-				if i == m.configPortFocus && m.configSetupRow == 5 {
+				if i == m.configPortFocus && m.configSetupRow == 4 {
 					sb.WriteString(styleSelected.Render(" " + label + " "))
 				} else if enabled[choice.port] {
 					sb.WriteString(styleGood.Render(" " + label + " "))
@@ -1759,13 +1788,8 @@ func (m AppModel) viewScanWithConfig() string {
 			}
 		}
 
-		// Row 0: VLESS URL
-		rowLabel(0, "  Config ")
-		sb.WriteString(" " + m.configInput.View() + "\n")
-		sb.WriteString(styleDim.Render("            ←/→ move cursor   ctrl+a home   ctrl+e end") + "\n\n")
-
-		// Row 1: Source
-		rowLabel(1, "  Source ")
+		// Row 0: Source
+		rowLabel(0, "  Source ")
 		sb.WriteString(" ")
 		renderPills(configIPModeLabels, m.configIPMode)
 		sb.WriteString("\n")
@@ -1775,12 +1799,12 @@ func (m AppModel) viewScanWithConfig() string {
 			sb.WriteString(styleDim.Render("            read custom IPs from ips.txt next to the app or working directory") + "\n\n")
 		}
 
-		// Row 2: Count
-		rowLabel(2, "  Count  ")
+		// Row 1: Count
+		rowLabel(1, "  Count  ")
 		sb.WriteString(" ")
 		renderPills(configCountLabels, m.configCountIdx)
 		sb.WriteString("\n")
-		if m.configCustomMode && m.configCustomRow == 2 {
+		if m.configCustomMode && m.configCustomRow == 1 {
 			sb.WriteString(styleAccent.Render("            custom count: ") + m.configCustomInput.View() + "\n\n")
 		} else if configCountValues[m.configCountIdx] == 0 && m.configCountCustom != "" {
 			sb.WriteString(styleDim.Render(fmt.Sprintf("            IPs to probe in Phase 1  (custom: %s)", m.configCountCustom)) + "\n\n")
@@ -1790,12 +1814,12 @@ func (m AppModel) viewScanWithConfig() string {
 			sb.WriteString(styleDim.Render("            IPs to probe in Phase 1") + "\n\n")
 		}
 
-		// Row 3: Workers
-		rowLabel(3, "  Workers")
+		// Row 2: Workers
+		rowLabel(2, "  Workers")
 		sb.WriteString(" ")
 		renderPills(quickWorkersLabels(), m.configWorkersIdx)
 		sb.WriteString("\n")
-		if m.configCustomMode && m.configCustomRow == 3 {
+		if m.configCustomMode && m.configCustomRow == 2 {
 			sb.WriteString(styleAccent.Render("            custom workers: ") + m.configCustomInput.View() + "\n\n")
 		} else if quickWorkersPresets[m.configWorkersIdx].value == "" && m.configWorkersCustom != "" {
 			sb.WriteString(styleDim.Render(fmt.Sprintf("            concurrent probes  (custom: %s)", m.configWorkersCustom)) + "\n\n")
@@ -1803,12 +1827,12 @@ func (m AppModel) viewScanWithConfig() string {
 			sb.WriteString(styleDim.Render("            concurrent probes") + "\n\n")
 		}
 
-		// Row 4: Timeout
-		rowLabel(4, "  Timeout")
+		// Row 3: Timeout
+		rowLabel(3, "  Timeout")
 		sb.WriteString(" ")
 		renderPills(quickTimeoutLabels(), m.configTimeoutIdx)
 		sb.WriteString("\n")
-		if m.configCustomMode && m.configCustomRow == 4 {
+		if m.configCustomMode && m.configCustomRow == 3 {
 			sb.WriteString(styleAccent.Render("            custom timeout: ") + m.configCustomInput.View() + "\n\n")
 		} else if quickTimeoutPresets[m.configTimeoutIdx].value == "" && m.configTimeoutCustom != "" {
 			sb.WriteString(styleDim.Render(fmt.Sprintf("            per-probe deadline  (custom: %s)", m.configTimeoutCustom)) + "\n\n")
@@ -1816,17 +1840,14 @@ func (m AppModel) viewScanWithConfig() string {
 			sb.WriteString(styleDim.Render("            per-probe deadline") + "\n\n")
 		}
 
-		// Row 5: Ports
-		rowLabel(5, "  Ports  ")
+		// Row 4: Ports
+		rowLabel(4, "  Ports  ")
 		sb.WriteString(" ")
 		renderMultiPorts()
 		sb.WriteString("\n")
 		sb.WriteString(styleDim.Render("            space toggles a port; selecting multiple ports multiplies work") + "\n\n")
 
-		hint := "  ↑/↓ row   ←/→ option   enter start   esc back"
-		if m.configSetupRow == 0 {
-			hint = "  type URL   enter next   ↓ navigate   esc back"
-		}
+		hint := "  ↑/↓ row   ←/→ option   enter continue   esc back"
 		if m.configCustomMode {
 			hint = "  type value   enter confirm   esc cancel"
 		}
@@ -1920,7 +1941,13 @@ func (m AppModel) viewScanWithConfig() string {
 		sb.WriteString(styleGood.Render("  "+m.statusMsg) + "\n")
 	}
 	if m.configDone {
-		sb.WriteString(styleHint.Render("  c copy working endpoints   q/esc back to menu") + "\n")
+		hint := "  c copy working endpoints   q/esc back to menu"
+		if m.liveResultPath != "" {
+			hint += "\n" + styleDim.Render("  live results → "+m.liveResultPath)
+		}
+		sb.WriteString(styleHint.Render(hint) + "\n")
+	} else if m.liveResultPath != "" {
+		sb.WriteString(styleDim.Render("  live results → "+m.liveResultPath) + "\n")
 	}
 
 	return sb.String()
@@ -1953,11 +1980,11 @@ func (m AppModel) handleScanWithConfigKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "enter":
 			val := strings.TrimSpace(m.configCustomInput.Value())
 			switch m.configCustomRow {
-			case 2:
+			case 1:
 				m.configCountCustom = val
-			case 3:
+			case 2:
 				m.configWorkersCustom = val
-			case 4:
+			case 3:
 				m.configTimeoutCustom = val
 			}
 			m.configCustomMode = false
@@ -1977,6 +2004,7 @@ func (m AppModel) handleScanWithConfigKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
 		if m.configScanning || m.configDone {
+			clearLiveResultWriter()
 			m.page = PageHome
 			m.configScanning = false
 			m.configDone = false
@@ -2001,31 +2029,28 @@ func (m AppModel) handleScanWithConfigKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// --- Setup navigation ---
-	// Arrow keys always navigate rows/presets (or move cursor on row 0 for left/right).
-	// Vim letter shortcuts (h/j/k/l) only navigate on picker rows; on row 0 they are
-	// forwarded to the URL text input so the user can type them freely.
-	const maxRow = 5
+	// --- Setup navigation (Source → Count → Workers → Timeout → Ports) ---
+	const maxRow = 4
 
 	configNavLeft := func() {
 		switch m.configSetupRow {
-		case 1:
+		case 0:
 			if m.configIPMode > 0 {
 				m.configIPMode--
 			}
-		case 2:
+		case 1:
 			if m.configCountIdx > 0 {
 				m.configCountIdx--
 			}
-		case 3:
+		case 2:
 			if m.configWorkersIdx > 0 {
 				m.configWorkersIdx--
 			}
-		case 4:
+		case 3:
 			if m.configTimeoutIdx > 0 {
 				m.configTimeoutIdx--
 			}
-		case 5:
+		case 4:
 			if m.configPortFocus > 0 {
 				m.configPortFocus--
 			}
@@ -2033,23 +2058,23 @@ func (m AppModel) handleScanWithConfigKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	configNavRight := func() {
 		switch m.configSetupRow {
-		case 1:
+		case 0:
 			if m.configIPMode < len(configIPModeLabels)-1 {
 				m.configIPMode++
 			}
-		case 2:
+		case 1:
 			if m.configCountIdx < len(configCountValues)-1 {
 				m.configCountIdx++
 			}
-		case 3:
+		case 2:
 			if m.configWorkersIdx < len(quickWorkersPresets)-1 {
 				m.configWorkersIdx++
 			}
-		case 4:
+		case 3:
 			if m.configTimeoutIdx < len(quickTimeoutPresets)-1 {
 				m.configTimeoutIdx++
 			}
-		case 5:
+		case 4:
 			if m.configPortFocus < len(configPortChoices)-1 {
 				m.configPortFocus++
 			}
@@ -2057,163 +2082,266 @@ func (m AppModel) handleScanWithConfigKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	switch msg.String() {
-	// Arrow up: always navigate rows
-	case "up":
+	case "up", "k":
 		if m.configSetupRow > 0 {
 			m.configSetupRow--
 		}
-		if m.configSetupRow == 0 {
-			m.configInput.Focus()
-			return m, textinput.Blink
-		}
-		m.configInput.Blur()
 		return m, nil
-
-	// Vim up: navigate only when NOT on URL row; otherwise type 'k'
-	case "k":
-		if m.configSetupRow > 0 {
-			m.configSetupRow--
-			if m.configSetupRow == 0 {
-				m.configInput.Focus()
-				return m, textinput.Blink
-			}
-			m.configInput.Blur()
-			return m, nil
-		}
-		// row 0: forward 'k' to URL input below
-
-	// Arrow down: always navigate rows
-	case "down":
+	case "down", "j":
 		if m.configSetupRow < maxRow {
 			m.configSetupRow++
-			m.configInput.Blur()
 		}
 		return m, nil
-
-	// Vim down: navigate only when NOT on URL row; otherwise type 'j'
-	case "j":
-		if m.configSetupRow > 0 {
-			if m.configSetupRow < maxRow {
-				m.configSetupRow++
-			}
-			return m, nil
-		}
-		// row 0: forward 'j' to URL input below
-
-	// Arrow left: navigate presets on rows 1-5; move text cursor on row 0
-	case "left":
-		if m.configSetupRow > 0 {
+	case "left", "h", "right", "l":
+		if msg.String() == "left" || msg.String() == "h" {
 			configNavLeft()
-			return m, nil
-		}
-		// row 0: forward arrow-left to URL input below
-
-	// Vim left: navigate only when NOT on URL row; otherwise type 'h'
-	case "h":
-		if m.configSetupRow > 0 {
-			configNavLeft()
-			return m, nil
-		}
-		// row 0: forward 'h' to URL input below
-
-	// Arrow right: navigate presets on rows 1-5; move text cursor on row 0
-	case "right":
-		if m.configSetupRow > 0 {
+		} else {
 			configNavRight()
-			return m, nil
 		}
-		// row 0: forward arrow-right to URL input below
-
-	// Vim right: navigate only when NOT on URL row; otherwise type 'l'
-	case "l":
-		if m.configSetupRow > 0 {
-			configNavRight()
-			return m, nil
-		}
-		// row 0: forward 'l' to URL input below
-
+		return m, nil
 	case " ":
-		if m.configSetupRow == 5 {
+		if m.configSetupRow == 4 {
 			m.toggleFocusedConfigPort()
 			return m, nil
 		}
 	case "enter":
-		// Row 0 (URL): Enter moves focus to the next row so the user can
-		// adjust settings before starting — it does NOT launch the scan.
-		if m.configSetupRow == 0 {
-			m.configSetupRow = 1
-			m.configInput.Blur()
-			return m, nil
-		}
-
-		if m.configSetupRow == 5 {
+		if m.configSetupRow == 4 {
 			m.toggleFocusedConfigPort()
 			return m, nil
 		}
-		if m.configSetupRow == 2 && configCountValues[m.configCountIdx] == 0 {
+		if m.configSetupRow == 1 && configCountValues[m.configCountIdx] == 0 {
 			m.configCustomMode = true
-			m.configCustomRow = 2
+			m.configCustomRow = 1
 			m.configCustomInput.SetValue(m.configCountCustom)
 			m.configCustomInput.Placeholder = "e.g. 50000"
 			m.configCustomInput.Focus()
 			return m, textinput.Blink
 		}
-		if m.configSetupRow == 3 && quickWorkersPresets[m.configWorkersIdx].value == "" {
+		if m.configSetupRow == 2 && quickWorkersPresets[m.configWorkersIdx].value == "" {
 			m.configCustomMode = true
-			m.configCustomRow = 3
+			m.configCustomRow = 2
 			m.configCustomInput.SetValue(m.configWorkersCustom)
 			m.configCustomInput.Placeholder = "e.g. 150"
 			m.configCustomInput.Focus()
 			return m, textinput.Blink
 		}
-		if m.configSetupRow == 4 && quickTimeoutPresets[m.configTimeoutIdx].value == "" {
+		if m.configSetupRow == 3 && quickTimeoutPresets[m.configTimeoutIdx].value == "" {
 			m.configCustomMode = true
-			m.configCustomRow = 4
+			m.configCustomRow = 3
 			m.configCustomInput.SetValue(m.configTimeoutCustom)
 			m.configCustomInput.Placeholder = "e.g. 7s"
 			m.configCustomInput.Focus()
 			return m, textinput.Blink
 		}
 
-		// Launch the scan from the count row.
-		rawURL := strings.TrimSpace(m.configInput.Value())
-		if rawURL == "" {
-			m.statusMsg = "paste your VLESS URL in the Config field above"
-			m.configSetupRow = 0
-			m.configInput.Focus()
-			return m, textinput.Blink
-		}
-		_, err := xraytest.ParseProxyURL(rawURL)
-		if err != nil {
-			m.statusMsg = fmt.Sprintf("invalid URL: %v", err)
-			m.configSetupRow = 0
-			m.configInput.Focus()
-			return m, textinput.Blink
-		}
 		m.statusMsg = ""
-		m.configURL = rawURL
-		m.page = PageConfigPhase1
-		m.configPhase1Results = nil
-		m.configPhase1Done = false
-		m.configPhase1Stats = StatsMsg{}
-		count := configCountValues[m.configCountIdx]
-		if count == 0 {
-			count, _ = strconv.Atoi(m.configCountCustom)
-			if count <= 0 {
-				count = 1000
-			}
+		m.page = PageConfigOptional
+		m.configOptionalRow = 0
+		m.configInput.Focus()
+		return m, textinput.Blink
+	}
+	return m, nil
+}
+
+func (m AppModel) viewConfigOptional() string {
+	var sb strings.Builder
+	sb.WriteString(styleTitle.Render("\n  ⚡  Find Working IPs — optional config\n"))
+	sb.WriteString(fmt.Sprintf("%s\n\n", styleSep.Render("  "+strings.Repeat("─", minInt(m.width-4, 70)))))
+
+	rowLabel := func(row int, text string) {
+		if m.configOptionalRow == row {
+			sb.WriteString(styleAccent.Render(text))
+		} else {
+			sb.WriteString(styleDim.Render(text))
 		}
-		m.configPhase1Total = m.phase1TargetTotal(count)
-		return m, m.startConfigPhase1()
 	}
 
-	// Forward regular typing keys to the URL text input when on row 0.
-	if m.configSetupRow == 0 {
+	renderPills := func(labels []string, selected int) {
+		for i, label := range labels {
+			if i == selected {
+				sb.WriteString(styleSelected.Render(" " + label + " "))
+			} else {
+				sb.WriteString(styleNormal.Render("  " + label + "  "))
+			}
+			if i < len(labels)-1 {
+				sb.WriteString(styleDim.Render("│"))
+			}
+		}
+	}
+
+	rowLabel(0, "  Config ")
+	sb.WriteString(" " + m.configInput.View() + "\n")
+	sb.WriteString(styleDim.Render("            optional — leave empty for Phase 1 only") + "\n\n")
+
+	rowLabel(1, "  Top N  ")
+	sb.WriteString(" ")
+	renderPills(configTopNLabels, m.configTopNIdx)
+	sb.WriteString("\n")
+	if m.configCustomMode && m.configCustomRow == 5 {
+		sb.WriteString(styleAccent.Render("            custom top N: ") + m.configCustomInput.View() + "\n\n")
+	} else if m.isTopNCustomSelected() && m.configTopNCustom != "" {
+		sb.WriteString(styleDim.Render(fmt.Sprintf("            Phase 2 candidates to validate  (custom: %s)", m.configTopNCustom)) + "\n\n")
+	} else {
+		sb.WriteString(styleDim.Render("            Phase 2 picks — used only when a config URL is entered") + "\n\n")
+	}
+
+	hint := "  ↑/↓ row   ←/→ option   enter start scan   esc back"
+	if m.configOptionalRow == 0 {
+		hint = "  paste URL or leave empty   enter start   ↓ navigate   esc back"
+	}
+	if m.configCustomMode {
+		hint = "  type value   enter confirm   esc cancel"
+	}
+	sb.WriteString(styleHint.Render(hint) + "\n")
+	if m.liveResultPath != "" {
+		sb.WriteString(styleDim.Render("  live file: "+m.liveResultPath) + "\n")
+	}
+	if m.statusMsg != "" {
+		sb.WriteString(styleWarn.Render("  ⚠  "+m.statusMsg) + "\n")
+	}
+	return sb.String()
+}
+
+func (m AppModel) handleConfigOptionalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.configCustomMode {
+		switch msg.String() {
+		case "enter":
+			if m.configCustomRow == 5 {
+				m.configTopNCustom = strings.TrimSpace(m.configCustomInput.Value())
+			}
+			m.configCustomMode = false
+			m.configCustomInput.Blur()
+			return m, nil
+		case "esc":
+			m.configCustomMode = false
+			m.configCustomInput.Blur()
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.configCustomInput, cmd = m.configCustomInput.Update(msg)
+		return m, cmd
+	}
+
+	switch msg.String() {
+	case "esc":
+		m.page = PageScanWithConfig
+		m.configInput.Blur()
+		return m, nil
+	case "up", "k":
+		if m.configOptionalRow > 0 {
+			m.configOptionalRow--
+			if m.configOptionalRow == 0 {
+				m.configInput.Focus()
+				return m, textinput.Blink
+			}
+			m.configInput.Blur()
+		}
+		return m, nil
+	case "down", "j":
+		if m.configOptionalRow == 0 {
+			m.configOptionalRow = 1
+			m.configInput.Blur()
+			return m, nil
+		}
+		return m, nil
+	case "left", "h":
+		if m.configOptionalRow == 1 {
+			if m.configTopNIdx > 0 {
+				m.configTopNIdx--
+			}
+			return m, nil
+		}
+	case "right", "l":
+		if m.configOptionalRow == 1 {
+			if m.configTopNIdx < len(configTopNLabels)-1 {
+				m.configTopNIdx++
+			}
+			return m, nil
+		}
+	case "enter":
+		if m.configOptionalRow == 0 {
+			if strings.TrimSpace(m.configInput.Value()) == "" {
+				return m.launchPhase1FromOptional()
+			}
+			m.configOptionalRow = 1
+			m.configInput.Blur()
+			return m, nil
+		}
+		if m.isTopNCustomSelected() {
+			m.configCustomMode = true
+			m.configCustomRow = 5
+			m.configCustomInput.SetValue(m.configTopNCustom)
+			m.configCustomInput.Placeholder = "e.g. 75"
+			m.configCustomInput.Focus()
+			return m, textinput.Blink
+		}
+		return m.launchPhase1FromOptional()
+	}
+
+	if m.configOptionalRow == 0 {
 		var cmd tea.Cmd
 		m.configInput, cmd = m.configInput.Update(msg)
 		return m, cmd
 	}
 	return m, nil
+}
+
+func (m AppModel) isTopNCustomSelected() bool {
+	return m.configTopNIdx == len(configTopNLabels)-1
+}
+
+func (m AppModel) launchPhase1FromOptional() (AppModel, tea.Cmd) {
+	rawURL := strings.TrimSpace(m.configInput.Value())
+	withConfig := rawURL != ""
+	if withConfig {
+		if _, err := xraytest.ParseProxyURL(rawURL); err != nil {
+			m.statusMsg = fmt.Sprintf("invalid URL: %v", err)
+			m.configOptionalRow = 0
+			m.configInput.Focus()
+			return m, textinput.Blink
+		}
+		m.configURL = rawURL
+	} else {
+		m.configURL = ""
+	}
+
+	writer, path, err := newLiveResultWriter(withConfig)
+	if err != nil {
+		m.statusMsg = fmt.Sprintf("could not create results file: %v", err)
+		return m, nil
+	}
+	setLiveResultWriter(writer)
+	m.liveResultPath = path
+	m.statusMsg = ""
+	m.configPhase1Only = !withConfig
+	m.configPhase1Results = nil
+	m.configPhase1Done = false
+	m.configPhase1Stats = StatsMsg{}
+	m.page = PageConfigPhase1
+
+	count := configCountValues[m.configCountIdx]
+	if count == 0 {
+		count, _ = strconv.Atoi(m.configCountCustom)
+		if count <= 0 {
+			count = 1000
+		}
+	}
+	m.configPhase1Total = m.phase1TargetTotal(count)
+	return m, m.startConfigPhase1()
+}
+
+func (m AppModel) resolveTopN() int {
+	if m.isTopNCustomSelected() {
+		n, _ := strconv.Atoi(strings.TrimSpace(m.configTopNCustom))
+		if n <= 0 {
+			return 50
+		}
+		return n
+	}
+	if m.configTopNIdx < 0 || m.configTopNIdx >= len(configTopNValues) {
+		return 50
+	}
+	return configTopNValues[m.configTopNIdx]
 }
 
 // ConfigDoneMsg signals all config validations are complete.
@@ -2281,8 +2409,8 @@ func runConfigScan(rawURL string) {
 
 var configCountValues = []int{1000, 5000, 20000, 0} // 0 = custom
 var configCountLabels = []string{"1,000", "5,000", "20,000", "Custom"}
-var configTopNValues = []int{10, 25, 50, 0}
-var configTopNLabels = []string{"10", "25", "50", "All"}
+var configTopNValues = []int{10, 25, 50, 100, 0} // 0 = all
+var configTopNLabels = []string{"10", "25", "50", "100", "All", "Custom"}
 var configIPModeLabels = []string{"Random", "From File"}
 var configPortChoices = []struct {
 	label string
@@ -2472,28 +2600,91 @@ func (m AppModel) viewConfigPhase1() string {
 	}
 
 	if m.configPhase1Done {
-		topN := configTopNValues[m.configTopNIdx]
-		sb.WriteString(styleGood.Render(fmt.Sprintf("  Found %d candidates. Testing top %d with xray...\n", healthy, topN)))
+		if m.configPhase1Only {
+			sb.WriteString(styleGood.Render(fmt.Sprintf("  Done — %d healthy endpoints found.\n\n", healthy)))
+		} else {
+			topN := m.resolveTopN()
+			label := fmt.Sprintf("%d", topN)
+			if topN == 0 {
+				label = "all"
+			}
+			sb.WriteString(styleGood.Render(fmt.Sprintf("  Found %d candidates. Testing top %s with xray...\n\n", healthy, label)))
+		}
 	} else if m.configIPMode == 1 {
-		sb.WriteString(styleNormal.Render("  Probing IPs from ips.txt on the selected ports...\n"))
+		sb.WriteString(styleNormal.Render("  Probing IPs from ips.txt on the selected ports...\n\n"))
+	} else if strings.TrimSpace(m.configURL) == "" {
+		sb.WriteString(styleNormal.Render("  Scanning random Cloudflare IPv4 IPs (standard HTTP probe)...\n"))
+		sb.WriteString(styleDim.Render("  healthy hits also explore nearby addresses in the same Cloudflare block\n\n"))
 	} else {
-		sb.WriteString(styleNormal.Render("  Scanning random Cloudflare IPv4 IPs with your config settings...\n"))
+		sb.WriteString(styleNormal.Render("  Scanning Cloudflare IPs using your config probe settings...\n"))
+		sb.WriteString(styleDim.Render("  healthy hits also explore nearby addresses in the same Cloudflare block\n\n"))
 	}
 
-	sb.WriteString("\n" + styleHint.Render("  q/esc cancel") + "\n")
+	if m.liveResultPath != "" {
+		sb.WriteString(styleDim.Render("  live results → "+m.liveResultPath+"\n\n"))
+	}
+
+	if len(m.configPhase1Results) > 0 {
+		hdr := fmt.Sprintf("  %-22s  %7s  %9s  %8s  %6s",
+			"ENDPOINT", "LOSS", "AVG(ms)", "COLO", "STATUS")
+		sb.WriteString(fmt.Sprintf("%s\n%s\n", styleHeader.Render(hdr), styleSep.Render("  "+strings.Repeat("─", 64))))
+
+		top := result.TopN(m.configPhase1Results, 20)
+		for _, r := range top {
+			colo := r.Colo
+			if colo == "" {
+				colo = "—"
+			}
+			status := "✓"
+			lineStyle := styleGood
+			if !r.IsHealthy() {
+				status = "✗"
+				lineStyle = styleBad
+			}
+			line := fmt.Sprintf("  %-22s  %6.1f%%  %9.2f  %-8s  %6s",
+				formatEndpoint(r.IP.String(), r.Port), r.Loss(),
+				float64(r.Avg().Milliseconds()), colo, status)
+			sb.WriteString(lineStyle.Render(line) + "\n")
+		}
+		sb.WriteRune('\n')
+	}
+
+	if m.configPhase1Done && m.configPhase1Only {
+		sb.WriteString(styleHint.Render("  c copy healthy endpoints   q/esc back") + "\n")
+	} else {
+		sb.WriteString(styleHint.Render("  q/esc cancel") + "\n")
+	}
 	return sb.String()
 }
 
 func (m AppModel) handleConfigPhase1Key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
+	case "c":
+		if m.configPhase1Done && m.configPhase1Only {
+			m.statusMsg = m.copyPhase1HealthyEndpoints()
+			return m, nil
+		}
 	case "esc", "q":
 		if scanCancel != nil {
 			scanCancel()
 		}
+		clearLiveResultWriter()
 		m.page = PageHome
 		return m, nil
 	}
 	return m, nil
+}
+
+func (m AppModel) copyPhase1HealthyEndpoints() string {
+	top := result.TopN(m.configPhase1Results, 0)
+	if len(top) == 0 {
+		return "no healthy endpoints to copy"
+	}
+	endpoints := make([]string, 0, len(top))
+	for _, r := range top {
+		endpoints = append(endpoints, formatEndpoint(r.IP.String(), r.Port))
+	}
+	return copyAndSaveIPs(endpoints)
 }
 
 // configPhase1Options holds the resolved settings for a Phase 1 engine run.
@@ -2624,6 +2815,9 @@ func runConfigPhase2(rawURL string, topIPs []*result.Result) {
 		ip := r.IP.String()
 		swapped := cfg.WithEndpoint(ip, r.Port)
 		vr := xraytest.ValidateConfig(ctx, swapped, 20*time.Second)
+		if liveResultWriter != nil {
+			liveResultWriter.AddPhase2(vr)
+		}
 		if prog != nil {
 			prog.Send(ConfigProgressMsg{
 				Result: vr,

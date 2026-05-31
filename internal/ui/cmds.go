@@ -273,12 +273,18 @@ func sendColosDone(scanID int64) {
 // that finds healthy Cloudflare IPs (or validates IPs from a file), then signals
 // the UI to start Phase 2 (xray validation) with the best candidates.
 func runConfigPhase1(opts configPhase1Options) {
-	probeCfg, err := configProbeFromURL(opts.rawURL, opts.timeout)
-	if err != nil {
-		if prog != nil {
-			prog.Send(ConfigPhase1ErrMsg{Err: fmt.Sprintf("invalid URL: %v", err)})
+	var probeCfg prober.Config
+	var err error
+	if strings.TrimSpace(opts.rawURL) == "" {
+		probeCfg = defaultPhase1ProbeConfig(opts.timeout)
+	} else {
+		probeCfg, err = configProbeFromURL(opts.rawURL, opts.timeout)
+		if err != nil {
+			if prog != nil {
+				prog.Send(ConfigPhase1ErrMsg{Err: fmt.Sprintf("invalid URL: %v", err)})
+			}
+			return
 		}
-		return
 	}
 	ports := opts.ports
 	if len(ports) == 0 {
@@ -290,12 +296,16 @@ func runConfigPhase1(opts configPhase1Options) {
 	defer cancel()
 
 	callback := func(r *result.Result) {
+		if liveResultWriter != nil {
+			liveResultWriter.AddPhase1(r)
+		}
 		if prog != nil {
 			prog.Send(ConfigPhase1ResultMsg{Result: r})
 		}
 	}
 
 	var ipStream <-chan net.IP
+	neighbor := neighborScanOpts{}
 	if opts.fromFile {
 		ips, err := loadDefaultIPsFile()
 		if err != nil {
@@ -325,8 +335,15 @@ func runConfigPhase1(opts configPhase1Options) {
 			return
 		}
 		ipStream = src.Stream(ctx, opts.count)
+		neighbor = neighborScanOpts{
+			enabled:  true,
+			nets:     src.IPv4Nets(),
+			radius:   ipsrc.DefaultNeighborRadius,
+			perHit:   ipsrc.DefaultNeighborPerHit,
+			maxTotal: ipsrc.DefaultNeighborMaxTotal,
+		}
 	}
-	runConfigPortProbes(ctx, ipStream, ports, opts.concurrency, probeCfg, callback)
+	runConfigPortProbes(ctx, ipStream, ports, opts.concurrency, probeCfg, callback, neighbor)
 
 	if prog != nil {
 		prog.Send(ConfigPhase1DoneMsg{})
@@ -338,39 +355,147 @@ type configProbeJob struct {
 	port int
 }
 
-func runConfigPortProbes(ctx context.Context, ips <-chan net.IP, ports []int, concurrency int, base prober.Config, callback func(*result.Result)) {
+type neighborScanOpts struct {
+	enabled  bool
+	nets     []*net.IPNet
+	radius   int
+	perHit   int
+	maxTotal int
+}
+
+func runConfigPortProbes(ctx context.Context, ips <-chan net.IP, ports []int, concurrency int, base prober.Config, callback func(*result.Result), neighbor neighborScanOpts) {
 	if concurrency <= 0 {
 		concurrency = 50
 	}
-	jobs := make(chan configProbeJob, concurrency)
-	var wg sync.WaitGroup
+	if neighbor.enabled {
+		if neighbor.radius <= 0 {
+			neighbor.radius = ipsrc.DefaultNeighborRadius
+		}
+		if neighbor.perHit <= 0 {
+			neighbor.perHit = ipsrc.DefaultNeighborPerHit
+		}
+		if neighbor.maxTotal <= 0 {
+			neighbor.maxTotal = ipsrc.DefaultNeighborMaxTotal
+		}
+	}
 
+	jobs := make(chan configProbeJob, concurrency*2)
+	var pending int64
+	var neighborsQueued int64
+	seen := make(map[string]struct{})
+	var seenMu sync.Mutex
+
+	jobKey := func(ip net.IP, port int) string {
+		return fmt.Sprintf("%s:%d", ip.String(), port)
+	}
+
+	submit := func(ip net.IP, port int) bool {
+		key := jobKey(ip, port)
+		seenMu.Lock()
+		if _, ok := seen[key]; ok {
+			seenMu.Unlock()
+			return false
+		}
+		seen[key] = struct{}{}
+		seenMu.Unlock()
+
+		atomic.AddInt64(&pending, 1)
+		select {
+		case <-ctx.Done():
+			atomic.AddInt64(&pending, -1)
+			return false
+		case jobs <- configProbeJob{ip: ip, port: port}:
+			return true
+		}
+	}
+
+	enqueueIP := func(ip net.IP) {
+		for _, port := range ports {
+			submit(ip, port)
+		}
+	}
+
+	maybeEnqueueNeighbors := func(r *result.Result) {
+		if !neighbor.enabled || !r.IsHealthy() || len(neighbor.nets) == 0 {
+			return
+		}
+
+		remaining := neighbor.maxTotal - int(atomic.LoadInt64(&neighborsQueued))
+		if remaining <= 0 {
+			return
+		}
+		limit := neighbor.perHit
+		if limit > remaining {
+			limit = remaining
+		}
+
+		for _, nip := range ipsrc.NeighborsAround(r.IP, neighbor.nets, neighbor.radius, limit) {
+			if atomic.LoadInt64(&neighborsQueued) >= int64(neighbor.maxTotal) {
+				break
+			}
+			added := 0
+			for _, port := range ports {
+				if submit(nip, port) {
+					added++
+				}
+			}
+			if added > 0 {
+				atomic.AddInt64(&neighborsQueued, 1)
+			}
+		}
+	}
+
+	var wg sync.WaitGroup
 	for i := 0; i < concurrency; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			for job := range jobs {
 				if ctx.Err() != nil {
-					return
+					atomic.AddInt64(&pending, -1)
+					continue
 				}
-				callback(prober.Probe(ctx, job.ip, base.WithPort(job.port)))
+				r := prober.Probe(ctx, job.ip, base.WithPort(job.port))
+				maybeEnqueueNeighbors(r)
+				callback(r)
+				atomic.AddInt64(&pending, -1)
 			}
 		}()
 	}
 
-	for ip := range ips {
-		for _, port := range ports {
-			select {
-			case <-ctx.Done():
-				close(jobs)
-				wg.Wait()
-				return
-			case jobs <- configProbeJob{ip: ip, port: port}:
+	go func() {
+		defer func() {
+			for atomic.LoadInt64(&pending) > 0 {
+				select {
+				case <-ctx.Done():
+					close(jobs)
+					return
+				case <-time.After(20 * time.Millisecond):
+				}
 			}
+			close(jobs)
+		}()
+
+		for ip := range ips {
+			if ctx.Err() != nil {
+				return
+			}
+			enqueueIP(ip)
 		}
-	}
-	close(jobs)
+	}()
+
 	wg.Wait()
+}
+
+func defaultPhase1ProbeConfig(timeout time.Duration) prober.Config {
+	return prober.Config{
+		Port:       443,
+		Mode:       prober.ModeHTTP,
+		Tries:      3,
+		Timeout:    timeout,
+		SNI:        "speed.cloudflare.com",
+		SpeedBytes: 64 * 1024,
+	}
 }
 
 func configProbeFromURL(rawURL string, timeout time.Duration) (prober.Config, error) {

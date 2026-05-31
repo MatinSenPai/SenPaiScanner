@@ -89,6 +89,11 @@ func NewWithOptions(useV4, useV6 bool, extra []string, opts Options) (*Source, e
 	return s, nil
 }
 
+// IPv4Nets returns the loaded IPv4 CIDR blocks (read-only slice header).
+func (s *Source) IPv4Nets() []*net.IPNet {
+	return s.v4Nets
+}
+
 // Random returns a single random IP from the configured ranges.
 func (s *Source) Random() net.IP {
 	all := append(s.v4Nets, s.v6Nets...)
