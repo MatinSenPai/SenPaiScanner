@@ -97,6 +97,49 @@ func TestProbeWebSocketUsesConfiguredHostAndPath(t *testing.T) {
 	}
 }
 
+func TestProbeWebSocketTimesOutDuringTLSHandshake(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+
+	releaseConn := make(chan struct{})
+	defer close(releaseConn)
+
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		<-releaseConn
+	}()
+
+	host, port, err := net.SplitHostPort(ln.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		t.Fatalf("listener host %q is not an IP", host)
+	}
+	portNum, err := net.LookupPort("tcp", port)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	start := time.Now()
+	ok := probeWebSocket(context.Background(), ip, portNum, "example.com", "", "/", 150*time.Millisecond)
+	elapsed := time.Since(start)
+	if ok {
+		t.Fatal("expected websocket probe to fail against a stalled TLS server")
+	}
+	if elapsed > time.Second {
+		t.Fatalf("websocket probe took %s, want it bounded by the probe timeout", elapsed)
+	}
+}
+
 func testCertificate() (tls.Certificate, error) {
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
