@@ -278,13 +278,6 @@ func probeHTTP(ctx context.Context, ip net.IP, port int, sni string, timeout tim
 // TLS cert verification is skipped here because the main probeHTTP call
 // already verified the certificate for this IP.
 func probeWebSocket(ctx context.Context, ip net.IP, port int, sni, host, path string, timeout time.Duration) bool {
-	if timeout <= 0 {
-		timeout = 5 * time.Second
-	}
-	wsCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	deadline, _ := wsCtx.Deadline()
-
 	addr := fmt.Sprintf("%s:%d", ip.String(), port)
 	if host == "" {
 		host = sni
@@ -292,7 +285,7 @@ func probeWebSocket(ctx context.Context, ip net.IP, port int, sni, host, path st
 	path = normalizeWSPath(path)
 
 	dialer := &net.Dialer{Timeout: timeout / 3}
-	conn, err := dialer.DialContext(wsCtx, "tcp", addr)
+	conn, err := dialer.DialContext(ctx, "tcp", addr)
 	if err != nil {
 		return false
 	}
@@ -303,22 +296,13 @@ func probeWebSocket(ctx context.Context, ip net.IP, port int, sni, host, path st
 		MinVersion:         tls.VersionTLS12,
 		InsecureSkipVerify: true, // cert already verified in probeHTTP
 	})
-	_ = tlsConn.SetDeadline(deadline)
-	if err := tlsConn.HandshakeContext(wsCtx); err != nil {
+	if err := tlsConn.HandshakeContext(ctx); err != nil {
 		return false
 	}
 
 	// Phase 1: idle hold — detect DPI that RSTs long-lived TLS connections
 	// before any application data is exchanged.
-	idleHold := 2 * time.Second
-	if remaining := time.Until(deadline); remaining < 2*idleHold {
-		idleHold = remaining / 2
-	}
-	idleDeadline, ok := boundedDeadline(deadline, idleHold)
-	if !ok {
-		return false
-	}
-	_ = tlsConn.SetReadDeadline(idleDeadline)
+	tlsConn.SetDeadline(time.Now().Add(2 * time.Second))
 	oneByte := make([]byte, 1)
 	if _, err := tlsConn.Read(oneByte); err != nil {
 		// A timeout here is EXPECTED (server speaks first only after WS upgrade).
@@ -340,11 +324,7 @@ func probeWebSocket(ctx context.Context, ip net.IP, port int, sni, host, path st
 			"Sec-WebSocket-Version: 13\r\n"+
 			"\r\n", path, host)
 
-	writeDeadline, ok := boundedDeadline(deadline, timeout/2)
-	if !ok {
-		return false
-	}
-	_ = tlsConn.SetWriteDeadline(writeDeadline)
+	tlsConn.SetDeadline(time.Now().Add(timeout / 2))
 	if _, err := tlsConn.Write([]byte(wsReq)); err != nil {
 		return false
 	}
@@ -353,32 +333,13 @@ func probeWebSocket(ctx context.Context, ip net.IP, port int, sni, host, path st
 	// HTTP status line (e.g. "HTTP/1.1 400 Bad Request"). If we see "HTTP/",
 	// the WS upgrade reached CF — the connection is DPI-permissive.
 	respBuf := make([]byte, 1024)
-	readDeadline, ok := boundedDeadline(deadline, timeout/3)
-	if !ok {
-		return false
-	}
-	_ = tlsConn.SetReadDeadline(readDeadline)
+	tlsConn.SetDeadline(time.Now().Add(timeout / 3))
 	n, err := tlsConn.Read(respBuf)
 	if err != nil || n == 0 {
 		return false
 	}
 
 	return strings.Contains(string(respBuf[:n]), "HTTP/")
-}
-
-func boundedDeadline(global time.Time, maxWait time.Duration) (time.Time, bool) {
-	if maxWait <= 0 {
-		maxWait = time.Millisecond
-	}
-	now := time.Now()
-	if !global.IsZero() && !global.After(now) {
-		return time.Time{}, false
-	}
-	local := now.Add(maxWait)
-	if !global.IsZero() && global.Before(local) {
-		return global, true
-	}
-	return local, true
 }
 
 func normalizeWSPath(path string) string {

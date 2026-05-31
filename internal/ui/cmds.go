@@ -363,13 +363,7 @@ type neighborScanOpts struct {
 	maxTotal int
 }
 
-type probeFunc func(context.Context, net.IP, prober.Config) *result.Result
-
 func runConfigPortProbes(ctx context.Context, ips <-chan net.IP, ports []int, concurrency int, base prober.Config, callback func(*result.Result), neighbor neighborScanOpts) {
-	runConfigPortProbesWithProbe(ctx, ips, ports, concurrency, base, callback, neighbor, prober.Probe)
-}
-
-func runConfigPortProbesWithProbe(ctx context.Context, ips <-chan net.IP, ports []int, concurrency int, base prober.Config, callback func(*result.Result), neighbor neighborScanOpts, probe probeFunc) {
 	if concurrency <= 0 {
 		concurrency = 50
 	}
@@ -385,12 +379,11 @@ func runConfigPortProbesWithProbe(ctx context.Context, ips <-chan net.IP, ports 
 		}
 	}
 
-	jobs := make(chan configProbeJob)
-	results := make(chan *result.Result, concurrency)
+	jobs := make(chan configProbeJob, concurrency*2)
+	var pending int64
+	var neighborsQueued int64
 	seen := make(map[string]struct{})
-	var queue []configProbeJob
-	var pending int
-	neighborsQueued := 0
+	var seenMu sync.Mutex
 
 	jobKey := func(ip net.IP, port int) string {
 		return fmt.Sprintf("%s:%d", ip.String(), port)
@@ -398,13 +391,22 @@ func runConfigPortProbesWithProbe(ctx context.Context, ips <-chan net.IP, ports 
 
 	submit := func(ip net.IP, port int) bool {
 		key := jobKey(ip, port)
+		seenMu.Lock()
 		if _, ok := seen[key]; ok {
+			seenMu.Unlock()
 			return false
 		}
 		seen[key] = struct{}{}
-		queue = append(queue, configProbeJob{ip: ip, port: port})
-		pending++
-		return true
+		seenMu.Unlock()
+
+		atomic.AddInt64(&pending, 1)
+		select {
+		case <-ctx.Done():
+			atomic.AddInt64(&pending, -1)
+			return false
+		case jobs <- configProbeJob{ip: ip, port: port}:
+			return true
+		}
 	}
 
 	enqueueIP := func(ip net.IP) {
@@ -418,7 +420,7 @@ func runConfigPortProbesWithProbe(ctx context.Context, ips <-chan net.IP, ports 
 			return
 		}
 
-		remaining := neighbor.maxTotal - neighborsQueued
+		remaining := neighbor.maxTotal - int(atomic.LoadInt64(&neighborsQueued))
 		if remaining <= 0 {
 			return
 		}
@@ -428,7 +430,7 @@ func runConfigPortProbesWithProbe(ctx context.Context, ips <-chan net.IP, ports 
 		}
 
 		for _, nip := range ipsrc.NeighborsAround(r.IP, neighbor.nets, neighbor.radius, limit) {
-			if neighborsQueued >= neighbor.maxTotal {
+			if atomic.LoadInt64(&neighborsQueued) >= int64(neighbor.maxTotal) {
 				break
 			}
 			added := 0
@@ -438,7 +440,7 @@ func runConfigPortProbesWithProbe(ctx context.Context, ips <-chan net.IP, ports 
 				}
 			}
 			if added > 0 {
-				neighborsQueued++
+				atomic.AddInt64(&neighborsQueued, 1)
 			}
 		}
 	}
@@ -450,51 +452,38 @@ func runConfigPortProbesWithProbe(ctx context.Context, ips <-chan net.IP, ports 
 			defer wg.Done()
 			for job := range jobs {
 				if ctx.Err() != nil {
+					atomic.AddInt64(&pending, -1)
 					continue
 				}
-				r := probe(ctx, job.ip, base.WithPort(job.port))
-				select {
-				case results <- r:
-				case <-ctx.Done():
-					return
-				}
+				r := prober.Probe(ctx, job.ip, base.WithPort(job.port))
+				maybeEnqueueNeighbors(r)
+				callback(r)
+				atomic.AddInt64(&pending, -1)
 			}
 		}()
 	}
 
-	input := ips
-	for input != nil || pending > 0 || len(queue) > 0 {
-		var send chan<- configProbeJob
-		var next configProbeJob
-		if len(queue) > 0 {
-			send = jobs
-			next = queue[0]
-		}
-
-		select {
-		case <-ctx.Done():
+	go func() {
+		defer func() {
+			for atomic.LoadInt64(&pending) > 0 {
+				select {
+				case <-ctx.Done():
+					close(jobs)
+					return
+				case <-time.After(20 * time.Millisecond):
+				}
+			}
 			close(jobs)
-			wg.Wait()
-			return
-		case ip, ok := <-input:
-			if !ok {
-				input = nil
-				continue
+		}()
+
+		for ip := range ips {
+			if ctx.Err() != nil {
+				return
 			}
 			enqueueIP(ip)
-		case send <- next:
-			queue[0] = configProbeJob{}
-			queue = queue[1:]
-		case r := <-results:
-			pending--
-			if r == nil {
-				continue
-			}
-			callback(r)
-			maybeEnqueueNeighbors(r)
 		}
-	}
-	close(jobs)
+	}()
+
 	wg.Wait()
 }
 
