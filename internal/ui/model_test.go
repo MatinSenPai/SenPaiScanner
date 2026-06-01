@@ -1,8 +1,10 @@
 package ui
 
 import (
+	"net"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -10,8 +12,11 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/matinsenpai/senpaiscanner/internal/result"
 	"github.com/matinsenpai/senpaiscanner/internal/xraytest"
 )
+
+var ansiRE = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 
 func TestMenuOnlyShowsMainWorkflow(t *testing.T) {
 	if len(menuEntries) != 3 {
@@ -74,6 +79,62 @@ func TestResolveConfigPortsMultiSelect(t *testing.T) {
 	}
 	if strings.Join(parts, ",") != strings.Join(want, ",") {
 		t.Fatalf("ports = %v, want %v", got, want)
+	}
+}
+
+func TestConfigPhase1TableColumnsStayAligned(t *testing.T) {
+	m := NewApp("test")
+	m.page = PageConfigPhase1
+	m.width = 120
+	m.configPhase1Total = 1000
+	m.configPhase1Results = []*result.Result{
+		{
+			IP:          net.ParseIP("172.67.145.191"),
+			Port:        8443,
+			ProbeMode:   "http",
+			Latencies:   []time.Duration{223 * time.Millisecond, 223 * time.Millisecond, 223 * time.Millisecond},
+			TLSOk:       true,
+			HTTPStatus:  200,
+			Colo:        "DME",
+			Throughput:  1024,
+			SpeedTested: true,
+			Timestamp:   time.Now(),
+		},
+	}
+
+	lines := strings.Split(ansiRE.ReplaceAllString(m.viewConfigPhase1(), ""), "\n")
+	var headerLine, rowLine string
+	for _, line := range lines {
+		if strings.Contains(line, "ENDPOINT") && strings.Contains(line, "AVG(ms)") {
+			headerLine = line
+		}
+		if strings.Contains(line, "172.67.145.191:8443") {
+			rowLine = line
+		}
+	}
+	if headerLine == "" {
+		t.Fatal("missing Phase 1 table header")
+	}
+	if rowLine == "" {
+		t.Fatal("missing Phase 1 table row")
+	}
+	for _, col := range []string{"LOSS", "AVG(ms)", "STATUS"} {
+		if !strings.Contains(headerLine, col) {
+			t.Fatalf("header missing %s: %q", col, headerLine)
+		}
+	}
+	for _, tc := range []struct {
+		header string
+		value  string
+	}{
+		{header: "ENDPOINT", value: "172.67.145.191:8443"},
+		{header: "COLO", value: "DME"},
+	} {
+		headerStart := strings.Index(headerLine, tc.header)
+		valueStart := strings.Index(rowLine, tc.value)
+		if headerStart < 0 || valueStart < 0 || headerStart != valueStart {
+			t.Fatalf("%s column misaligned\nheader: %q\nrow:    %q", tc.header, headerLine, rowLine)
+		}
 	}
 }
 

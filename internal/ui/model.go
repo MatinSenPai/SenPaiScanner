@@ -2614,23 +2614,30 @@ func (m AppModel) viewConfigPhase1() string {
 
 	if m.configPhase1Done {
 		if m.configPhase1Only {
-			sb.WriteString(styleGood.Render(fmt.Sprintf("  Done — %d healthy endpoints found.\n\n", healthy)))
+			sb.WriteString(styleGood.Render(fmt.Sprintf("  Done — %d healthy endpoints found.", healthy)))
+			sb.WriteString("\n\n")
 		} else {
 			topN := m.resolveTopN()
 			label := fmt.Sprintf("%d", topN)
 			if topN == 0 {
 				label = "all"
 			}
-			sb.WriteString(styleGood.Render(fmt.Sprintf("  Found %d candidates. Testing top %s with xray...\n\n", healthy, label)))
+			sb.WriteString(styleGood.Render(fmt.Sprintf("  Found %d candidates. Testing top %s with xray...", healthy, label)))
+			sb.WriteString("\n\n")
 		}
 	} else if m.configIPMode == 1 {
-		sb.WriteString(styleNormal.Render("  Probing IPs from ips.txt on the selected ports...\n\n"))
+		sb.WriteString(styleNormal.Render("  Probing IPs from ips.txt on the selected ports..."))
+		sb.WriteString("\n\n")
 	} else if strings.TrimSpace(m.configURL) == "" {
-		sb.WriteString(styleNormal.Render("  Scanning random Cloudflare IPv4 IPs (standard HTTP probe)...\n"))
-		sb.WriteString(styleDim.Render("  healthy hits also explore nearby addresses in the same Cloudflare block\n\n"))
+		sb.WriteString(styleNormal.Render("  Scanning random Cloudflare IPv4 IPs (standard HTTP probe)..."))
+		sb.WriteString("\n")
+		sb.WriteString(styleDim.Render("  healthy hits also explore nearby addresses in the same Cloudflare block"))
+		sb.WriteString("\n\n")
 	} else {
-		sb.WriteString(styleNormal.Render("  Scanning Cloudflare IPs using your config probe settings...\n"))
-		sb.WriteString(styleDim.Render("  healthy hits also explore nearby addresses in the same Cloudflare block\n\n"))
+		sb.WriteString(styleNormal.Render("  Scanning Cloudflare IPs using your config probe settings..."))
+		sb.WriteString("\n")
+		sb.WriteString(styleDim.Render("  healthy hits also explore nearby addresses in the same Cloudflare block"))
+		sb.WriteString("\n\n")
 	}
 
 	if m.liveResultPath != "" {
@@ -2638,7 +2645,7 @@ func (m AppModel) viewConfigPhase1() string {
 	}
 
 	if len(m.configPhase1Results) > 0 {
-		hdr := fmt.Sprintf("  %-22s  %7s  %9s  %8s  %6s",
+		hdr := fmt.Sprintf("  %-22s  %7s  %9s  %-8s  %6s",
 			"ENDPOINT", "LOSS", "AVG(ms)", "COLO", "STATUS")
 		sb.WriteString(fmt.Sprintf("%s\n%s\n", styleHeader.Render(hdr), styleSep.Render("  "+strings.Repeat("─", 64))))
 
