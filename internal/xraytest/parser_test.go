@@ -134,3 +134,76 @@ func assertEqual(t *testing.T, field, got, want string) {
 func itoa(n int) string {
 	return fmt.Sprintf("%d", n)
 }
+
+func TestParseShadowsocksSIP002(t *testing.T) {
+	// SIP002 format: ss://BASE64(method:password)@host:port#remark
+	// aes-256-gcm:hunter2 → base64 = YWVzLTI1Ni1nY206aHVudGVyMg==
+	raw := "ss://YWVzLTI1Ni1nY206aHVudGVyMg==@192.0.2.1:8388#My%20Server"
+	cfg, err := ParseShadowsocks(raw)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	assertEqual(t, "Protocol", cfg.Protocol, "shadowsocks")
+	assertEqual(t, "Method", cfg.Method, "aes-256-gcm")
+	assertEqual(t, "Password", cfg.Password, "hunter2")
+	assertEqual(t, "Address", cfg.Address, "192.0.2.1")
+	assertEqual(t, "Port", itoa(cfg.Port), "8388")
+	assertEqual(t, "Remark", cfg.Remark, "My Server")
+	assertEqual(t, "Network", cfg.Network, "tcp")
+}
+
+func TestParseShadowsocksLegacy(t *testing.T) {
+	// Legacy format: ss://BASE64(method:password@host:port)#remark
+	// chacha20-ietf-poly1305:s3cr3t@10.0.0.1:1080
+	encoded := "Y2hhY2hhMjAtaWV0Zi1wb2x5MTMwNTpzM2NyM3RAMTAuMC4wLjE6MTA4MA=="
+	raw := "ss://" + encoded + "#legacy"
+	cfg, err := ParseShadowsocks(raw)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	assertEqual(t, "Protocol", cfg.Protocol, "shadowsocks")
+	assertEqual(t, "Method", cfg.Method, "chacha20-ietf-poly1305")
+	assertEqual(t, "Password", cfg.Password, "s3cr3t")
+	assertEqual(t, "Address", cfg.Address, "10.0.0.1")
+	assertEqual(t, "Port", itoa(cfg.Port), "1080")
+	assertEqual(t, "Remark", cfg.Remark, "legacy")
+}
+
+func TestParseShadowsocksViaDispatch(t *testing.T) {
+	raw := "ss://Y2hhY2hhMjAtaWV0Zi1wb2x5MTMwNTpteXBhc3NAZXhhbXBsZS5jb206NDQz#test"
+	cfg, err := ParseProxyURL(raw)
+	if err != nil {
+		t.Fatalf("dispatch error: %v", err)
+	}
+	if cfg.Protocol != "shadowsocks" {
+		t.Errorf("Protocol: got %q, want shadowsocks", cfg.Protocol)
+	}
+}
+
+func TestParseShadowsocksToShareURL(t *testing.T) {
+	raw := "ss://YWVzLTI1Ni1nY206aHVudGVyMg==@192.0.2.1:8388#test"
+	cfg, err := ParseShadowsocks(raw)
+	if err != nil {
+		t.Fatalf("parse error: %v", err)
+	}
+	reconstructed := cfg.ToShadowsocksURL()
+	cfg2, err := ParseShadowsocks(reconstructed)
+	if err != nil {
+		t.Fatalf("round-trip parse error: %v", err)
+	}
+	assertEqual(t, "Method", cfg2.Method, cfg.Method)
+	assertEqual(t, "Password", cfg2.Password, cfg.Password)
+	assertEqual(t, "Address", cfg2.Address, cfg.Address)
+	assertEqual(t, "Port", itoa(cfg2.Port), itoa(cfg.Port))
+}
+
+func TestParseShadowsocksInvalidPort(t *testing.T) {
+	for _, raw := range []string{
+		"ss://YWVzLTI1Ni1nY206dGVzdA==@example.com:0",
+		"ss://YWVzLTI1Ni1nY206dGVzdA==@example.com:99999",
+	} {
+		if _, err := ParseShadowsocks(raw); err == nil {
+			t.Fatalf("expected error for %q, got nil", raw)
+		}
+	}
+}
