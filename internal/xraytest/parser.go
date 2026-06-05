@@ -175,8 +175,12 @@ func (c *VLESSConfig) WithEndpoint(newAddr string, newPort int) *VLESSConfig {
 	return &copy
 }
 
-// ToShareURL reconstructs a vless:// share URL from the config.
+// ToShareURL reconstructs a share URL from the config.
+// For Shadowsocks configs it delegates to ToShadowsocksURL.
 func (c *VLESSConfig) ToShareURL() string {
+	if c.Protocol == "shadowsocks" {
+		return c.ToShadowsocksURL()
+	}
 	params := url.Values{}
 	params.Set("encryption", c.Encryption)
 	params.Set("security", c.Security)
