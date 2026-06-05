@@ -1,6 +1,7 @@
 package xraytest
 
 import (
+	"encoding/base64"
 	"fmt"
 	"net/url"
 	"strconv"
@@ -20,6 +21,9 @@ type VLESSConfig struct {
 
 	// Trojan-specific
 	Password string
+
+	// Shadowsocks-specific
+	Method string // cipher, e.g. "aes-256-gcm", "chacha20-ietf-poly1305"
 
 	// Common
 	Address string
@@ -44,7 +48,7 @@ type VLESSConfig struct {
 	Remark string
 }
 
-// ParseProxyURL auto-detects the protocol (vless:// or trojan://) and parses
+// ParseProxyURL auto-detects the protocol (vless://, trojan://, or ss://) and parses
 // the share URL into a VLESSConfig. Returns an error if the scheme is unknown.
 func ParseProxyURL(raw string) (*VLESSConfig, error) {
 	raw = strings.TrimSpace(raw)
@@ -54,8 +58,10 @@ func ParseProxyURL(raw string) (*VLESSConfig, error) {
 		return ParseVLESS(raw)
 	case strings.HasPrefix(lower, "trojan://"):
 		return ParseTrojan(raw)
+	case strings.HasPrefix(lower, "ss://"):
+		return ParseShadowsocks(raw)
 	default:
-		return nil, fmt.Errorf("unsupported URL scheme — must start with vless:// or trojan://")
+		return nil, fmt.Errorf("unsupported URL scheme — must start with vless://, trojan://, or ss://")
 	}
 }
 
@@ -374,4 +380,166 @@ func ParseTrojan(raw string) (*VLESSConfig, error) {
 	}
 
 	return cfg, nil
+}
+
+// ParseShadowsocks parses a ss:// share URL (SIP002 and legacy formats).
+//
+// SIP002 (preferred):
+//
+//	ss://BASE64(method:password)@hostname:port[/?plugin=...][#remark]
+//
+// Legacy:
+//
+//	ss://BASE64(method:password@hostname:port)[#remark]
+func ParseShadowsocks(raw string) (*VLESSConfig, error) {
+	if !hasScheme(raw, "ss") {
+		return nil, fmt.Errorf("not a ss:// URL")
+	}
+
+	raw = stripScheme(raw, "ss")
+
+	// Split remark
+	remark := ""
+	if idx := strings.LastIndex(raw, "#"); idx != -1 {
+		remark = raw[idx+1:]
+		raw = raw[:idx]
+	}
+	remark, _ = url.QueryUnescape(remark)
+
+	// Strip plugin query string (informational; not needed for scanning)
+	if idx := strings.Index(raw, "?"); idx != -1 {
+		raw = raw[:idx]
+	}
+
+	// Some clients append a trailing "/" before "?"
+	raw = strings.TrimSuffix(raw, "/")
+
+	var method, password, address string
+	var port int
+
+	if atIdx := strings.Index(raw, "@"); atIdx != -1 {
+		// ── SIP002 ──────────────────────────────────────────────────────────
+		// userinfo is BASE64(method:password) or plain method:password
+		userinfoRaw := raw[:atIdx]
+		hostPort := raw[atIdx+1:]
+
+		methodPassword, err := ssDecodeUserinfo(userinfoRaw)
+		if err != nil {
+			return nil, fmt.Errorf("decoding ss:// userinfo: %w", err)
+		}
+
+		colonIdx := strings.Index(methodPassword, ":")
+		if colonIdx == -1 {
+			return nil, fmt.Errorf("invalid ss:// userinfo: missing \":\" between method and password")
+		}
+		method = strings.ToLower(methodPassword[:colonIdx])
+		password = methodPassword[colonIdx+1:]
+
+		host, portStr, err := splitHostPort(hostPort)
+		if err != nil {
+			return nil, fmt.Errorf("parsing host:port %q: %w", hostPort, err)
+		}
+		port, err = strconv.Atoi(portStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid port %q", portStr)
+		}
+		address = host
+	} else {
+		// ── Legacy ───────────────────────────────────────────────────────────
+		// entire body is BASE64(method:password@hostname:port)
+		decoded, err := base64DecodeSS(raw)
+		if err != nil {
+			return nil, fmt.Errorf("decoding legacy ss:// URL: %w", err)
+		}
+
+		atIdx := strings.LastIndex(decoded, "@")
+		if atIdx == -1 {
+			return nil, fmt.Errorf("invalid legacy ss:// URL: missing @")
+		}
+
+		methodPassword := decoded[:atIdx]
+		hostPort := decoded[atIdx+1:]
+
+		colonIdx := strings.Index(methodPassword, ":")
+		if colonIdx == -1 {
+			return nil, fmt.Errorf("invalid method:password in legacy ss:// URL")
+		}
+		method = strings.ToLower(methodPassword[:colonIdx])
+		password = methodPassword[colonIdx+1:]
+
+		host, portStr, err := splitHostPort(hostPort)
+		if err != nil {
+			return nil, fmt.Errorf("parsing host:port %q: %w", hostPort, err)
+		}
+		port, err = strconv.Atoi(portStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid port %q", portStr)
+		}
+		address = host
+	}
+
+	if err := validatePort(port); err != nil {
+		return nil, err
+	}
+
+	return &VLESSConfig{
+		Protocol: "shadowsocks",
+		Method:   method,
+		Password: password,
+		Address:  address,
+		Port:     port,
+		Network:  "tcp",
+		Security: "none",
+		Remark:   remark,
+	}, nil
+}
+
+// ToShadowsocksURL reconstructs a ss:// SIP002 share URL from the config.
+func (c *VLESSConfig) ToShadowsocksURL() string {
+	userinfo := base64.RawURLEncoding.EncodeToString([]byte(c.Method + ":" + c.Password))
+	remark := url.QueryEscape(c.Remark)
+	return fmt.Sprintf("ss://%s@%s:%d#%s", userinfo, c.Address, c.Port, remark)
+}
+
+// ssDecodeUserinfo tries to base64-decode a SIP002 userinfo field.
+// Falls back to treating it as plain (URL-decoded) "method:password".
+func ssDecodeUserinfo(s string) (string, error) {
+	decoded, err := base64DecodeSS(s)
+	if err == nil && strings.Contains(decoded, ":") {
+		return decoded, nil
+	}
+	// Try plain URL-encoded method:password
+	unescaped, _ := url.QueryUnescape(s)
+	if strings.Contains(unescaped, ":") {
+		return unescaped, nil
+	}
+	if strings.Contains(s, ":") {
+		return s, nil
+	}
+	return "", fmt.Errorf("cannot interpret %q as base64 or plain method:password", s)
+}
+
+// base64DecodeSS decodes a base64 string, tolerating missing padding
+// and both standard / URL-safe alphabets.
+func base64DecodeSS(s string) (string, error) {
+	stripped := strings.TrimRight(s, "=")
+	for _, enc := range []*base64.Encoding{base64.RawURLEncoding, base64.RawStdEncoding} {
+		if b, err := enc.DecodeString(stripped); err == nil {
+			return string(b), nil
+		}
+	}
+	// Restore padding and retry
+	switch len(stripped) % 4 {
+	case 2:
+		stripped += "=="
+	case 3:
+		stripped += "="
+	}
+	if b, err := base64.URLEncoding.DecodeString(stripped); err == nil {
+		return string(b), nil
+	}
+	if b, err := base64.StdEncoding.DecodeString(stripped); err == nil {
+		return string(b), nil
+	}
+	return "", fmt.Errorf("base64 decode failed for %q", s)
 }
