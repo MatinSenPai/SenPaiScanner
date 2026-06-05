@@ -398,7 +398,7 @@ func NewApp(version string) AppModel {
 
 	// Config input for "Scan with Config"
 	cfgInput := textinput.New()
-	cfgInput.Placeholder = "vless:// or trojan:// share URL"
+	cfgInput.Placeholder = "vless://, trojan://, or ss:// share URL"
 	cfgInput.CharLimit = 2000
 	cfgInput.Width = 0 // 0 = no fixed width, grows with content
 	m.configInput = cfgInput
