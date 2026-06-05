@@ -46,10 +46,33 @@ func BuildXrayConfig(cfg *VLESSConfig, socksPort int) ([]byte, error) {
 }
 
 func buildOutbound(cfg *VLESSConfig) map[string]interface{} {
-	if cfg.Protocol == "trojan" {
+	switch cfg.Protocol {
+	case "trojan":
 		return buildTrojanOutbound(cfg)
+	case "shadowsocks":
+		return buildShadowsocksOutbound(cfg)
+	default:
+		return buildVLESSOutbound(cfg)
 	}
-	return buildVLESSOutbound(cfg)
+}
+
+func buildShadowsocksOutbound(cfg *VLESSConfig) map[string]interface{} {
+	server := map[string]interface{}{
+		"address":  cfg.Address,
+		"port":     cfg.Port,
+		"method":   cfg.Method,
+		"password": cfg.Password,
+	}
+	return map[string]interface{}{
+		"tag":      "proxy",
+		"protocol": "shadowsocks",
+		"settings": map[string]interface{}{
+			"servers": []map[string]interface{}{server},
+		},
+		"streamSettings": map[string]interface{}{
+			"network": "tcp",
+		},
+	}
 }
 
 func buildVLESSOutbound(cfg *VLESSConfig) map[string]interface{} {
