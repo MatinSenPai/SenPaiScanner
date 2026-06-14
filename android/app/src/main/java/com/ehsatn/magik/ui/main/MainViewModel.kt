@@ -1,4 +1,4 @@
-package com.matinsenpai.senpaiscanner.ui.main
+package com.ehsatn.magik.ui.main
 
 import androidx.lifecycle.ViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -7,8 +7,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-import com.matinsenpai.senpaiscanner.mobile.Callback
-import com.matinsenpai.senpaiscanner.mobile.Mobile
+import com.ehsatn.magik.mobile.Callback
+import com.ehsatn.magik.mobile.Mobile
 
 @Serializable
 data class ScanConfig(

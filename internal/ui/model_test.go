@@ -12,8 +12,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/matinsenpai/senpaiscanner/internal/result"
-	"github.com/matinsenpai/senpaiscanner/internal/xraytest"
+	"github.com/ehsatn/MAGIK/internal/result"
+	"github.com/ehsatn/MAGIK/internal/xraytest"
 )
 
 var ansiRE = regexp.MustCompile(`\x1b\[[0-9;]*m`)

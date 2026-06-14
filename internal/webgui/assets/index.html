@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>MAGIK</title>
+    <link rel="stylesheet" href="/assets/styles.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand">
+          <div class="brand-mark">M</div>
+          <div>
+            <h1>MAGIK</h1>
+            <p id="version">dev</p>
+          </div>
+        </div>
+
+        <div class="status-module">
+          <div class="status-row">
+            <span id="phaseDot" class="dot idle"></span>
+            <span id="statusText">Ready</span>
+            <span id="phaseLabel" class="pill">idle</span>
+          </div>
+          <div class="progress">
+            <div id="progressBar"></div>
+          </div>
+          <div class="status-meta">
+            <span>Elapsed <strong id="elapsed">00:00</strong></span>
+            <span id="resultCount">0 rows</span>
+            <span id="saveState">not saved</span>
+          </div>
+        </div>
+
+        <div class="toolbar">
+          <button id="copyBtn" class="ghost" type="button">Copy</button>
+          <button id="saveBtn" class="ghost" type="button">Save</button>
+          <label class="switch" title="Dark mode">
+            <input id="themeToggle" type="checkbox" checked>
+            <span></span>
+          </label>
+          <button id="quitBtn" class="ghost danger" type="button">Exit</button>
+        </div>
+      </header>
+
+      <section class="metrics">
+        <div class="metric">
+          <span id="p1Done">0</span>
+          <label>Phase 1</label>
+        </div>
+        <div class="metric">
+          <span id="p1Healthy">0</span>
+          <label>Candidates</label>
+        </div>
+        <div class="metric">
+          <span id="p2Done">0</span>
+          <label>Xray</label>
+        </div>
+        <div class="metric strong">
+          <span id="workingCount">0</span>
+          <label>Working</label>
+        </div>
+      </section>
+
+      <main class="workspace">
+        <section class="panel scan-panel">
+          <div class="panel-head">
+            <h2>Setup</h2>
+            <div class="primary-actions">
+              <button id="startBtn" class="primary" type="button">Start</button>
+              <button id="stopBtn" class="secondary" type="button" disabled>Stop</button>
+            </div>
+          </div>
+
+          <div class="form-section">
+            <div class="quick-grid">
+              <div class="segmented" role="group" aria-label="Source">
+                <label>
+                  <input type="radio" name="source" value="random" checked>
+                  <span>Random</span>
+                </label>
+                <label>
+                  <input type="radio" name="source" value="file">
+                  <span>ips.txt</span>
+                </label>
+              </div>
+
+              <label class="field">
+                <span>Count</span>
+                <input id="count" type="number" min="1" max="500000" value="5000">
+              </label>
+
+              <label class="field">
+                <span>Workers</span>
+                <input id="workers" type="number" min="1" max="1000" value="50">
+              </label>
+
+              <label class="field">
+                <span>Timeout</span>
+                <input id="timeout" type="text" value="5s">
+              </label>
+            </div>
+          </div>
+
+          <div class="form-section">
+            <label class="field">
+              <span>Proxy URL</span>
+              <textarea id="configUrl" rows="4" spellcheck="false" placeholder="VLESS / Trojan / VMess URL"></textarea>
+            </label>
+
+            <div class="ports" id="ports">
+              <label><input type="checkbox" value="0" checked><span>Config</span></label>
+              <label><input type="checkbox" value="443" checked><span>443</span></label>
+              <label><input type="checkbox" value="8443"><span>8443</span></label>
+              <label><input type="checkbox" value="2053"><span>2053</span></label>
+              <label><input type="checkbox" value="2083"><span>2083</span></label>
+              <label><input type="checkbox" value="2087"><span>2087</span></label>
+              <label><input type="checkbox" value="2096"><span>2096</span></label>
+            </div>
+          </div>
+
+          <details class="form-section advanced-fold">
+            <summary>Advanced</summary>
+            <div class="advanced-grid">
+              <label class="field">
+                <span>Top N</span>
+                <input id="topN" type="number" min="1" max="1000" value="50">
+              </label>
+              <label class="field">
+                <span>Min Mbps</span>
+                <input id="minSpeed" type="number" min="0" step="0.1" value="0">
+              </label>
+              <label class="field">
+                <span>Speed KB</span>
+                <input id="speedSize" type="number" min="16" value="512">
+              </label>
+              <div class="toggles">
+                <label><input id="requireWs" type="checkbox" checked><span>Require WS</span></label>
+                <label><input id="uploadTest" type="checkbox"><span>Upload test</span></label>
+              </div>
+            </div>
+          </details>
+        </section>
+
+        <section class="results-stack">
+          <div class="panel working-panel">
+            <div class="panel-head">
+              <h2>Working</h2>
+            </div>
+            <div id="workingList" class="working-list empty">No working endpoints yet</div>
+          </div>
+
+          <div class="panel table-panel">
+            <div class="panel-head">
+              <h2>Results</h2>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Phase</th>
+                    <th>Endpoint</th>
+                    <th>Colo</th>
+                    <th>Loss</th>
+                    <th>Avg</th>
+                    <th>Speed</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody id="resultsBody">
+                  <tr><td colspan="7" class="empty-cell">Ready</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <div id="toast" class="toast" hidden></div>
+    <script src="/assets/app.js"></script>
+  </body>
+</html>

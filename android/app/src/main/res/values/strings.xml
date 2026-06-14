@@ -1,17 +1,17 @@
 <resources>
-    <string name="app_name">SenPaiScanner</string>
+    <string name="app_name">MAGIK</string>
     <string name="title_info">Info</string>
-    <string name="info_app_logo">SenPaiScanner Logo</string>
-    <string name="info_app_name_title">SenPaiScanner</string>
+    <string name="info_app_logo">MAGIK Logo</string>
+    <string name="info_app_name_title">MAGIK</string>
     <string name="info_overview_subtitle">Project overview and build details</string>
     <string name="info_build_information">Build Information</string>
     <string name="info_project_links">Project Links</string>
-    <string name="info_main_github">Main GitHub</string>
-    <string name="info_main_telegram">Telegram Channel</string>
+    <string name="info_main_github">MAGIK GitHub</string>
+    <string name="info_main_telegram">Upstream Project</string>
     <string name="info_version_info">Version Info</string>
     <string name="info_app_version">App Version</string>
     <string name="info_open_link">Open link</string>
     <string name="info_description">A Cloudflare IP scanner built for high-latency, restricted networks.\nProbes Cloudflare\'s edge nodes via TCP/TLS/HTTP, measures loss, jitter, and identifies the colo (PoP) behind each IP.</string>
-    <string name="project_main_github">github.com/MatinSenPai/SenPaiScanner</string>
-    <string name="project_main_telegram">t.me/MatinSenPaii</string>
+    <string name="project_main_github">github.com/ehsatn/MAGIK</string>
+    <string name="project_main_telegram">github.com/MatinSenPai/SenPaiScanner</string>
 </resources>

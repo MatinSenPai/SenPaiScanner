@@ -1,26 +1,28 @@
-# SenPai Scanner
+# MAGIK
 
 > **English:** [README.md](README.md)
 
-[![CI](https://github.com/matinsenpai/senpaiscanner/actions/workflows/ci.yml/badge.svg)](https://github.com/matinsenpai/senpaiscanner/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/matinsenpai/senpaiscanner?style=flat-square)](https://github.com/matinsenpai/senpaiscanner/releases/latest)
-[![Go Version](https://img.shields.io/github/go-mod/go-version/matinsenpai/senpaiscanner?style=flat-square)](go.mod)
+[![CI](https://github.com/ehsatn/MAGIK/actions/workflows/ci.yml/badge.svg)](https://github.com/ehsatn/MAGIK/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/ehsatn/MAGIK?style=flat-square)](https://github.com/ehsatn/MAGIK/releases/latest)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/ehsatn/MAGIK?style=flat-square)](go.mod)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
 [![Platforms](https://img.shields.io/badge/platform-linux%20%7C%20macOS%20%7C%20windows%20%7C%20android%20%7C%20termux-informational?style=flat-square)](#نصب)
 
 ---
 
-<img width="825" height="589" alt="image" src="https://github.com/user-attachments/assets/6558f7b1-bd9d-460a-adf2-d314fe70c48a" />
+MAGIK یک فورک از [MatinSenPai/SenPaiScanner](https://github.com/MatinSenPai/SenPaiScanner) است که با نام جدید، رابط گرافیکی ساده‌تر و ظاهر مرتب‌تر ادامه داده شده.
 
-اگر روی شبکه‌ای هستید که تأخیر بالاست، اتصال بی‌خبر قطع می‌شود و پیدا کردن یک IP کارآمد Cloudflare تبدیل به کار روزانه شده — SenPai Scanner برای همین ساخته شده.
+اگر روی شبکه‌ای هستید که تأخیر بالاست، اتصال بی‌خبر قطع می‌شود و پیدا کردن یک IP کارآمد Cloudflare تبدیل به کار روزانه شده — MAGIK برای همین ساخته شده.
 
 این ابزار IPهای لبه Cloudflare را پروب می‌کند، بهترین‌ها را با xray داخلی و کانفیگ VLESS یا Trojan خودتان تست می‌کند، و نتیجه را آماده‌ی paste کردن تحویل می‌دهد. بدون حفظ کردن فلگ‌های عجیب، بدون تنظیمات پیچیده — فقط ابزار را اجرا کنید و بگذارید کارش را بکند.
+
+نسخه‌ی ترمینالی با `magik` ساخته می‌شود. برای رابط گرافیکی دسکتاپ، باینری `magik-gui` یک UI محلی دارک با فونت‌های کدنویسی باز می‌کند.
 
 ---
 
 ## چطور کار می‌کند
 
-`senpaiscanner` را اجرا کنید تا وارد یک منوی ساده شوید. با کلیدهای جهت‌نما و Enter جابه‌جا می‌شوید — هیچ فلگ CLI برای اسکن وجود ندارد.
+`magik` را اجرا کنید تا وارد یک منوی ساده شوید. با کلیدهای جهت‌نما و Enter جابه‌جا می‌شوید — هیچ فلگ CLI برای اسکن وجود ندارد.
 
 ```
 ┌────────────────────────────────────────────────────────────┐
@@ -47,35 +49,53 @@
 
 ### دسکتاپ — باینری آماده
 
-از [صفحه Releases](https://github.com/matinsenpai/senpaiscanner/releases/latest) دانلود کنید:
+از [صفحه Releases](https://github.com/ehsatn/MAGIK/releases/latest) دانلود کنید:
 
 | پلتفرم | معماری | فایل |
 |---|---|---|
-| Linux | x86_64 | `senpaiscanner-linux-amd64` |
-| Linux | ARM64 | `senpaiscanner-linux-arm64` |
-| Linux | 32-bit x86 | `senpaiscanner-linux-386` |
-| macOS | Intel | `senpaiscanner-darwin-amd64` |
-| macOS | Apple Silicon | `senpaiscanner-darwin-arm64` |
-| Windows | x86_64 | `senpaiscanner-windows-amd64.exe` |
-| Windows | 32-bit x86 | `senpaiscanner-windows-386.exe` |
+| Linux | x86_64 | `magik-linux-amd64` |
+| Linux | ARM64 | `magik-linux-arm64` |
+| Linux | 32-bit x86 | `magik-linux-386` |
+| macOS | Intel | `magik-darwin-amd64` |
+| macOS | Apple Silicon | `magik-darwin-arm64` |
+| Windows | x86_64 | `magik-windows-amd64.exe` |
+| Windows | 32-bit x86 | `magik-windows-386.exe` |
 
 **Linux / macOS — نصب با یک دستور:**
 
 ```bash
 # نسخه پایدار
-curl -fsSL https://github.com/MatinSenPai/SenPaiScanner/raw/refs/heads/main/install.sh | bash
+curl -fsSL https://github.com/ehsatn/MAGIK/raw/refs/heads/main/install.sh | bash
 
 # پیش‌انتشار
-curl -fsSL https://github.com/MatinSenPai/SenPaiScanner/raw/refs/heads/main/install.sh | bash -s -- --prerelease
+curl -fsSL https://github.com/ehsatn/MAGIK/raw/refs/heads/main/install.sh | bash -s -- --prerelease
 ```
 
 **Windows (PowerShell):**
 
 ```powershell
-$r = Invoke-RestMethod https://api.github.com/repos/matinsenpai/senpaiscanner/releases/latest
-$url = ($r.assets | Where-Object name -eq "senpaiscanner-windows-amd64.exe").browser_download_url
-Invoke-WebRequest $url -OutFile senpaiscanner.exe
+$r = Invoke-RestMethod https://api.github.com/repos/ehsatn/MAGIK/releases/latest
+$url = ($r.assets | Where-Object name -eq "magik-windows-amd64.exe").browser_download_url
+Invoke-WebRequest $url -OutFile magik.exe
 ```
+
+### رابط گرافیکی دسکتاپ
+
+برای ساخت نسخه GUI:
+
+```bash
+make build-gui
+```
+
+روی ویندوز، این هدف باینری GUI را بدون باز شدن پنجره CMD می‌سازد:
+
+```bash
+make build-gui-windows-amd64
+```
+
+بعد از اجرا، `magik-gui` رابط گرافیکی دارک را به‌صورت محلی در مرورگر باز می‌کند.
+
+![رابط گرافیکی MAGIK](docs/assets/magik-gui.png)
 
 ### اندروید — APK آماده
 
@@ -83,9 +103,9 @@ APKهای امضاشده به هر Release ضمیمه می‌شوند:
 
 | فایل | توضیح |
 |---|---|
-| `SenPaiScanner-{version}-universal-release.apk` | همه ABIها — پیشنهادی |
-| `SenPaiScanner-{version}-arm64-v8a-release.apk` | فقط ARM 64-bit |
-| `SenPaiScanner-{version}-armeabi-v7a-release.apk` | فقط ARM 32-bit |
+| `MAGIK-{version}-universal-release.apk` | همه ABIها — پیشنهادی |
+| `MAGIK-{version}-arm64-v8a-release.apk` | فقط ARM 64-bit |
+| `MAGIK-{version}-armeabi-v7a-release.apk` | فقط ARM 32-bit |
 
 APK را نصب کنید، «نصب از منابع ناشناس» را در صورت نیاز فعال کنید، دسترسی شبکه بدهید و روی **START SCAN** بزنید.
 
@@ -100,18 +120,18 @@ pkg update && pkg upgrade -y
 pkg install curl tar -y
 ```
 
-**۲. نصب SenPai Scanner:**
+**۲. نصب MAGIK:**
 
 ```bash
-curl -fsSL https://github.com/MatinSenPai/SenPaiScanner/raw/refs/heads/main/install.sh | bash
+curl -fsSL https://github.com/ehsatn/MAGIK/raw/refs/heads/main/install.sh | bash
 ```
 
-اسکریپت Termux را تشخیص می‌دهد و در `$PREFIX/bin` نصب می‌کند. روی گوشی ۶۴-bit، فایل `senpaiscanner-linux-arm64` دانلود می‌شود.
+اسکریپت Termux را تشخیص می‌دهد و در `$PREFIX/bin` نصب می‌کند. روی گوشی ۶۴-bit، فایل `magik-linux-arm64` دانلود می‌شود.
 
 **۳. اجرا:**
 
 ```bash
-senpaiscanner
+magik
 ```
 
 **چند نکته برای Termux:**
@@ -128,16 +148,16 @@ senpaiscanner
 **نصب دستی (بدون اسکریپت):**
 
 ```bash
-curl -fsSL -o "$PREFIX/bin/senpaiscanner" \
-  https://github.com/matinsenpai/senpaiscanner/releases/latest/download/senpaiscanner-linux-arm64
-chmod +x "$PREFIX/bin/senpaiscanner"
-senpaiscanner
+curl -fsSL -o "$PREFIX/bin/magik" \
+  https://github.com/ehsatn/MAGIK/releases/latest/download/magik-linux-arm64
+chmod +x "$PREFIX/bin/magik"
+magik
 ```
 
 ### از سورس
 
 ```bash
-go install github.com/matinsenpai/senpaiscanner/cmd/senpaiscanner@latest
+go install github.com/ehsatn/MAGIK/cmd/magik@latest
 ```
 
 ---
@@ -145,10 +165,10 @@ go install github.com/matinsenpai/senpaiscanner/cmd/senpaiscanner@latest
 ## راهنمای استفاده
 
 ```bash
-senpaiscanner              # باز کردن TUI
-senpaiscanner --version    # نمایش نسخه
-senpaiscanner -v           # همان
-senpaiscanner version      # همان
+magik              # باز کردن TUI
+magik --version    # نمایش نسخه
+magik -v           # همان
+magik version      # همان
 ```
 
 بقیه کارها داخل TUI یا اپ اندروید است.
@@ -196,9 +216,9 @@ senpaiscanner version      # همان
 
 | پلتفرم | مسیر |
 |---|---|
-| Windows | `%AppData%\senpaiscanner\config.json` |
-| macOS | `~/Library/Application Support/senpaiscanner/config.json` |
-| Linux / Termux | `~/.config/senpaiscanner/config.json` |
+| Windows | `%AppData%\magik\config.json` |
+| macOS | `~/Library/Application Support/magik/config.json` |
+| Linux / Termux | `~/.config/magik/config.json` |
 
 **Retry Last Scan** در صفحه اصلی همین مقادیر را بارگذاری و فوراً اسکن را شروع می‌کند.
 
@@ -206,7 +226,7 @@ senpaiscanner version      # همان
 
 ## فایل نتایج زنده
 
-حین اسکن، یک فایل با نام `SenPaiScannerResult-YYYYMMDD-HHMMSS.txt` کنار باینری ساخته می‌شود. این فایل:
+حین اسکن، یک فایل با نام `MAGIKResult-YYYYMMDD-HHMMSS.txt` کنار باینری ساخته می‌شود. این فایل:
 
 - تا رسیدن اولین نتیجه سالم ساخته نمی‌شود (فایل خالی placeholder نمی‌سازد)
 - با هر به‌روزرسانی بازنویسی می‌شود — می‌توانید آن را در ادیتور tail کنید
@@ -309,10 +329,10 @@ senpaiscanner version      # همان
 ## سوالات متداول
 
 **چرا ping نمی‌زند؟**
-Cloudflare ICMP را روی edge IPها drop می‌کند. SenPai Scanner رفتار HTTP/TLS واقعی را تست می‌کند که به استفاده عملی VLESS/Trojan نزدیک‌تر است.
+Cloudflare ICMP را روی edge IPها drop می‌کند. MAGIK رفتار HTTP/TLS واقعی را تست می‌کند که به استفاده عملی VLESS/Trojan نزدیک‌تر است.
 
 **تفاوتش با warp-plus چیست؟**
-SenPai Scanner پروکسی دائمی راه نمی‌اندازد. IPهای Cloudflare را برای **کانفیگ xray شما** پیدا و اعتبارسنجی می‌کند و لیست `IP:port` export می‌دهد.
+MAGIK پروکسی دائمی راه نمی‌اندازد. IPهای Cloudflare را برای **کانفیگ xray شما** پیدا و اعتبارسنجی می‌کند و لیست `IP:port` export می‌دهد.
 
 **محدوده IPها از کجاست؟**
 از لیست‌های رسمی Cloudflare — `cloudflare.com/ips-v4` و `cloudflare.com/ips-v6` — که داخل باینری embed شده‌اند.
@@ -333,8 +353,8 @@ SenPai Scanner پروکسی دائمی راه نمی‌اندازد. IPهای Cl
 ### دسکتاپ
 
 ```bash
-git clone https://github.com/matinsenpai/senpaiscanner.git
-cd senpaiscanner
+git clone https://github.com/ehsatn/MAGIK.git
+cd magik
 make build          # پلتفرم فعلی
 make build-all      # همه پلتفرم‌ها ← dist/
 make test
@@ -373,7 +393,7 @@ CI با push تگ، APK امضاشده را به Release ضمیمه می‌کن�
 
 Issue و PR خوش‌آمد است. برای تغییرات بزرگ اول یک issue باز کنید تا درباره جهت پروژه صحبت کنیم.
 
-برای گزارش باگ لطفاً موارد زیر را ذکر کنید: OS/arch، نسخه (`senpaiscanner --version`)، صفحه‌ای که در آن بودید، رفتار موردانتظار در مقابل آنچه دیدید.
+برای گزارش باگ لطفاً موارد زیر را ذکر کنید: OS/arch، نسخه (`magik --version`)، صفحه‌ای که در آن بودید، رفتار موردانتظار در مقابل آنچه دیدید.
 
 ---
 

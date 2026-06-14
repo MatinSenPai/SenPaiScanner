@@ -1,4 +1,4 @@
-package com.matinsenpai.senpaiscanner.theme
+package com.ehsatn.magik.theme
 
 import androidx.compose.material3.Typography
 import androidx.compose.ui.text.TextStyle

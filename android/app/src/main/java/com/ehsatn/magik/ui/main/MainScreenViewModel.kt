@@ -1,9 +1,9 @@
-package com.matinsenpai.senpaiscanner.ui.main
+package com.ehsatn.magik.ui.main
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.matinsenpai.senpaiscanner.data.DataRepository
-import com.matinsenpai.senpaiscanner.ui.main.MainScreenUiState.Success
+import com.ehsatn.magik.data.DataRepository
+import com.ehsatn.magik.ui.main.MainScreenUiState.Success
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.catch

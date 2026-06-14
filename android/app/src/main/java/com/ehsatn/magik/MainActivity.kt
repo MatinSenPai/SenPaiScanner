@@ -1,4 +1,4 @@
-package com.matinsenpai.senpaiscanner
+package com.ehsatn.magik
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -8,7 +8,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
-import com.matinsenpai.senpaiscanner.theme.SenPaiScannerTheme
+import com.ehsatn.magik.theme.MagikTheme
 
 class MainActivity : ComponentActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
@@ -16,7 +16,7 @@ class MainActivity : ComponentActivity() {
 
     enableEdgeToEdge()
     setContent {
-      SenPaiScannerTheme { Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) { com.matinsenpai.senpaiscanner.ui.main.AppUI() } }
+      MagikTheme { Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) { com.ehsatn.magik.ui.main.AppUI() } }
     }
   }
 }

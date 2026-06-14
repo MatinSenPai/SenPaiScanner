@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "com.matinsenpai.senpaiscanner"
+    namespace = "com.ehsatn.magik"
     compileSdk = 36
     val appVersionName = System.getenv("ANDROID_VERSION_NAME")
         ?.takeIf { it.isNotBlank() }
@@ -14,7 +14,7 @@ android {
         ?.toIntOrNull()
         ?: 1
     defaultConfig {
-        applicationId = "com.matinsenpai.senpaiscanner"
+        applicationId = "com.ehsatn.magik"
         minSdk = 24
         targetSdk = 36
         versionCode = appVersionCode
@@ -106,5 +106,5 @@ dependencies {
   androidTestImplementation(libs.androidx.test.espresso.core)
 
   implementation(libs.kotlinx.serialization.json)
-  implementation(files("libs/senpaiscanner.aar"))
+  implementation(files("libs/magik.aar"))
 }

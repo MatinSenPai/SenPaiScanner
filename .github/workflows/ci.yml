@@ -87,6 +87,6 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: senpaiscanner-debug
+          name: magik-debug
           path: android/app/build/outputs/apk/debug/app-*-debug.apk
           retention-days: 1

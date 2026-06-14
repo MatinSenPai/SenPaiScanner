@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/matinsenpai/senpaiscanner/internal/result"
-	"github.com/matinsenpai/senpaiscanner/internal/xraytest"
+	"github.com/ehsatn/MAGIK/internal/result"
+	"github.com/ehsatn/MAGIK/internal/xraytest"
 )
 
 var liveResultWriter *LiveResultWriter
@@ -50,7 +50,7 @@ func newLiveResultWriter(withConfig bool) (*LiveResultWriter, string, error) {
 }
 
 func liveResultFilePath() (string, error) {
-	name := fmt.Sprintf("SenPaiScannerResult-%s.txt", time.Now().Format("20060102-150405"))
+	name := fmt.Sprintf("MAGIKResult-%s.txt", time.Now().Format("20060102-150405"))
 	for _, dir := range resultFileDirs() {
 		if dir == "" {
 			continue
@@ -141,7 +141,7 @@ func (w *LiveResultWriter) writeLocked() error {
 	}
 
 	var sb strings.Builder
-	sb.WriteString("SenPai Scanner — live results\n")
+	sb.WriteString("MAGIK - live results\n")
 	sb.WriteString(fmt.Sprintf("Started: %s\n", w.started.Format("2006-01-02 15:04:05")))
 	sb.WriteString(fmt.Sprintf("Updated: %s\n", time.Now().Format("2006-01-02 15:04:05")))
 	if w.withConfig {

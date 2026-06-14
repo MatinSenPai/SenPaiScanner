@@ -1,4 +1,4 @@
-package com.matinsenpai.senpaiscanner.ui.main
+package com.ehsatn.magik.ui.main
 
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -48,14 +48,14 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import java.io.File
 import java.io.FileOutputStream
-import com.matinsenpai.senpaiscanner.BuildConfig
-import com.matinsenpai.senpaiscanner.R
-import com.matinsenpai.senpaiscanner.theme.SenPaiDarkBackground
-import com.matinsenpai.senpaiscanner.theme.SenPaiError
-import com.matinsenpai.senpaiscanner.theme.SenPaiOrange
-import com.matinsenpai.senpaiscanner.theme.SenPaiSuccess
-import com.matinsenpai.senpaiscanner.theme.SenPaiDarkSurface
-import com.matinsenpai.senpaiscanner.theme.SenPaiPrimary
+import com.ehsatn.magik.BuildConfig
+import com.ehsatn.magik.R
+import com.ehsatn.magik.theme.MagikDarkBackground
+import com.ehsatn.magik.theme.MagikError
+import com.ehsatn.magik.theme.MagikOrange
+import com.ehsatn.magik.theme.MagikSuccess
+import com.ehsatn.magik.theme.MagikDarkSurface
+import com.ehsatn.magik.theme.MagikPrimary
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -102,7 +102,7 @@ fun AppUI(viewModel: MainViewModel = viewModel()) {
                     Spacer(modifier = Modifier.width(10.dp))
                     Text(
                         text = stringResource(R.string.app_name),
-                        color = SenPaiOrange,
+                        color = MagikOrange,
                         fontWeight = FontWeight.Bold,
                         fontSize = 20.sp
                     )
@@ -111,7 +111,7 @@ fun AppUI(viewModel: MainViewModel = viewModel()) {
                     Icon(
                         imageVector = Icons.Filled.Info,
                         contentDescription = stringResource(R.string.title_info),
-                        tint = SenPaiOrange
+                        tint = MagikOrange
                     )
                 }
             }
@@ -125,8 +125,8 @@ fun AppUI(viewModel: MainViewModel = viewModel()) {
                     onClick = { selectedTab = 0 },
                     colors = NavigationBarItemDefaults.colors(
                         selectedIconColor = MaterialTheme.colorScheme.background,
-                        selectedTextColor = SenPaiOrange,
-                        indicatorColor = SenPaiOrange,
+                        selectedTextColor = MagikOrange,
+                        indicatorColor = MagikOrange,
                         unselectedIconColor = Color.Gray,
                         unselectedTextColor = Color.Gray
                     )
@@ -138,8 +138,8 @@ fun AppUI(viewModel: MainViewModel = viewModel()) {
                     onClick = { selectedTab = 1 },
                     colors = NavigationBarItemDefaults.colors(
                         selectedIconColor = MaterialTheme.colorScheme.background,
-                        selectedTextColor = SenPaiOrange,
-                        indicatorColor = SenPaiOrange,
+                        selectedTextColor = MagikOrange,
+                        indicatorColor = MagikOrange,
                         unselectedIconColor = Color.Gray,
                         unselectedTextColor = Color.Gray
                     )
@@ -150,7 +150,7 @@ fun AppUI(viewModel: MainViewModel = viewModel()) {
             if (selectedTab == 0) {
                 FloatingActionButton(
                     onClick = { viewModel.toggleScan() },
-                    containerColor = if (uiState.isRunning) SenPaiError else SenPaiOrange,
+                    containerColor = if (uiState.isRunning) MagikError else MagikOrange,
                     contentColor = Color.White
                 ) {
                     Text(
@@ -185,8 +185,8 @@ fun HomeScreen(uiState: ScanUiState, context: Context) {
         }
         Spacer(modifier = Modifier.height(4.dp))
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            StatCard("Healthy", uiState.healthy.toString(), Modifier.weight(1f), SenPaiSuccess)
-            StatCard("Failed", uiState.failed.toString(), Modifier.weight(1f), SenPaiError)
+            StatCard("Healthy", uiState.healthy.toString(), Modifier.weight(1f), MagikSuccess)
+            StatCard("Failed", uiState.failed.toString(), Modifier.weight(1f), MagikError)
         }
 
         Spacer(modifier = Modifier.height(8.dp))
@@ -207,24 +207,24 @@ fun HomeScreen(uiState: ScanUiState, context: Context) {
                     val phase1Ips = uiState.results.filter { !it.isPhase2 && it.isHealthy }.map { it.ip }.distinct().joinToString("\n")
                     if (phase1Ips.isNotEmpty()) {
                         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                        clipboard.setPrimaryClip(ClipData.newPlainText("SenPaiScanner IPs", phase1Ips))
+                        clipboard.setPrimaryClip(ClipData.newPlainText("MAGIK IPs", phase1Ips))
                         val count = uiState.results.count { !it.isPhase2 && it.isHealthy }
                         Toast.makeText(context, "Copied $count Phase 1 IPs", Toast.LENGTH_SHORT).show()
                     }
                 },
                 modifier = Modifier.weight(1f),
                 colors = ButtonDefaults.outlinedButtonColors(
-                    contentColor = SenPaiOrange
+                    contentColor = MagikOrange
                 ),
-                border = BorderStroke(1.dp, SenPaiOrange)
+                border = BorderStroke(1.dp, MagikOrange)
             ) {
                 Text(
                     text = "Copy",
                     fontSize = 12.sp,
-                    color = SenPaiOrange
+                    color = MagikOrange
                 )
                 Spacer(modifier = Modifier.width(4.dp))
-                Text("Phase 1", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = SenPaiOrange)
+                Text("Phase 1", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = MagikOrange)
             }
             
             // Phase 2 Copy Button (only visible when Phase 2 results exist)
@@ -234,24 +234,24 @@ fun HomeScreen(uiState: ScanUiState, context: Context) {
                         val phase2Ips = uiState.results.filter { it.isPhase2 && it.phase2Status }.map { it.ip }.distinct().joinToString("\n")
                         if (phase2Ips.isNotEmpty()) {
                             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            clipboard.setPrimaryClip(ClipData.newPlainText("SenPaiScanner Phase 2 IPs", phase2Ips))
+                            clipboard.setPrimaryClip(ClipData.newPlainText("MAGIK Phase 2 IPs", phase2Ips))
                             val count = uiState.results.count { it.isPhase2 && it.phase2Status }
                             Toast.makeText(context, "Copied $count Phase 2 IPs", Toast.LENGTH_SHORT).show()
                         }
                     },
                     modifier = Modifier.weight(1f),
                     colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = SenPaiPrimary
+                        contentColor = MagikPrimary
                     ),
-                    border = BorderStroke(1.dp, SenPaiPrimary)
+                    border = BorderStroke(1.dp, MagikPrimary)
                 ) {
                     Text(
                         text = "Copy",
                         fontSize = 12.sp,
-                        color = SenPaiPrimary
+                        color = MagikPrimary
                     )
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("Phase 2", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = SenPaiPrimary)
+                    Text("Phase 2", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = MagikPrimary)
                 }
             }
         }
@@ -266,12 +266,12 @@ fun HomeScreen(uiState: ScanUiState, context: Context) {
                 ) {
                     Text(
                         text = "Xray Validating Candidates...",
-                        color = SenPaiPrimary,
+                        color = MagikPrimary,
                         fontWeight = FontWeight.Bold
                     )
                     Text(
                         text = "${uiState.tested} / ${uiState.totalPhase2}",
-                        color = SenPaiPrimary,
+                        color = MagikPrimary,
                         fontWeight = FontWeight.Bold,
                         fontSize = 14.sp
                     )
@@ -280,8 +280,8 @@ fun HomeScreen(uiState: ScanUiState, context: Context) {
                 LinearProgressIndicator(
                     progress = { progress },
                     modifier = Modifier.fillMaxWidth().height(6.dp),
-                    color = SenPaiPrimary,
-                    trackColor = SenPaiDarkSurface,
+                    color = MagikPrimary,
+                    trackColor = MagikDarkSurface,
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
@@ -299,7 +299,7 @@ fun HomeScreen(uiState: ScanUiState, context: Context) {
             items(uiState.results) { res ->
                 Card(
                     modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                    colors = CardDefaults.cardColors(containerColor = SenPaiDarkSurface)
+                    colors = CardDefaults.cardColors(containerColor = MagikDarkSurface)
                 ) {
                     if (res.isPhase2) {
                         Column(modifier = Modifier.padding(12.dp).fillMaxWidth()) {
@@ -310,7 +310,7 @@ fun HomeScreen(uiState: ScanUiState, context: Context) {
                                     Icon(
                                         imageVector = Icons.Default.ContentCopy,
                                         contentDescription = "Copy IP",
-                                        tint = SenPaiOrange,
+                                        tint = MagikOrange,
                                         modifier = Modifier
                                             .size(16.dp)
                                             .clickable {
@@ -323,7 +323,7 @@ fun HomeScreen(uiState: ScanUiState, context: Context) {
                                 Icon(
                                     imageVector = if (res.phase2Status) Icons.Default.Check else Icons.Default.Close,
                                     contentDescription = if (res.phase2Status) "Passed" else "Failed",
-                                    tint = if (res.phase2Status) SenPaiSuccess else SenPaiError,
+                                    tint = if (res.phase2Status) MagikSuccess else MagikError,
                                     modifier = Modifier.size(20.dp)
                                 )
                             }
@@ -346,7 +346,7 @@ fun HomeScreen(uiState: ScanUiState, context: Context) {
                                 Icon(
                                     imageVector = Icons.Default.ContentCopy,
                                     contentDescription = "Copy IP",
-                                    tint = SenPaiOrange,
+                                    tint = MagikOrange,
                                     modifier = Modifier
                                         .size(18.dp)
                                         .clickable {
@@ -357,7 +357,7 @@ fun HomeScreen(uiState: ScanUiState, context: Context) {
                                 )
                             }
                             Column(horizontalAlignment = Alignment.End) {
-                                Text("${res.latencyMs} ms", color = if (res.isHealthy) SenPaiSuccess else SenPaiError, fontWeight = FontWeight.Bold)
+                                Text("${res.latencyMs} ms", color = if (res.isHealthy) MagikSuccess else MagikError, fontWeight = FontWeight.Bold)
                                 Text("Loss: ${String.format("%.2f", res.loss)}%", fontSize = 12.sp, color = Color.Gray)
                             }
                         }
@@ -372,7 +372,7 @@ fun HomeScreen(uiState: ScanUiState, context: Context) {
 fun StatCard(title: String, value: String, modifier: Modifier = Modifier, valueColor: Color = Color.White) {
     Card(
         modifier = modifier,
-        colors = CardDefaults.cardColors(containerColor = SenPaiDarkSurface)
+        colors = CardDefaults.cardColors(containerColor = MagikDarkSurface)
     ) {
         Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
             Text(title, color = Color.Gray, fontSize = 11.sp)
@@ -406,7 +406,7 @@ fun SettingsScreen(config: ScanConfig, onConfigChanged: (ScanConfig) -> Unit) {
 
     LazyColumn(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         item {
-            Text("Scanner Settings", style = MaterialTheme.typography.headlineSmall, color = SenPaiOrange, fontWeight = FontWeight.Bold)
+            Text("Scanner Settings", style = MaterialTheme.typography.headlineSmall, color = MagikOrange, fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.height(16.dp))
         }
 
@@ -414,16 +414,16 @@ fun SettingsScreen(config: ScanConfig, onConfigChanged: (ScanConfig) -> Unit) {
         item {
             SettingSection("Source", "") {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    RadioButton(selected = config.sourceType == "Random", onClick = { onConfigChanged(config.copy(sourceType = "Random")) }, colors = RadioButtonDefaults.colors(selectedColor = SenPaiOrange))
+                    RadioButton(selected = config.sourceType == "Random", onClick = { onConfigChanged(config.copy(sourceType = "Random")) }, colors = RadioButtonDefaults.colors(selectedColor = MagikOrange))
                     Text("Random", modifier = Modifier.clickable { onConfigChanged(config.copy(sourceType = "Random")) })
                     Spacer(modifier = Modifier.width(16.dp))
-                    RadioButton(selected = config.sourceType == "From File", onClick = { onConfigChanged(config.copy(sourceType = "From File")) }, colors = RadioButtonDefaults.colors(selectedColor = SenPaiOrange))
+                    RadioButton(selected = config.sourceType == "From File", onClick = { onConfigChanged(config.copy(sourceType = "From File")) }, colors = RadioButtonDefaults.colors(selectedColor = MagikOrange))
                     Text("From File", modifier = Modifier.clickable { onConfigChanged(config.copy(sourceType = "From File")) })
                 }
                 if (config.sourceType == "From File") {
                     Spacer(modifier = Modifier.height(8.dp))
-                    Button(onClick = { filePickerLauncher.launch("text/plain") }, colors = ButtonDefaults.buttonColors(containerColor = SenPaiDarkSurface)) {
-                        Text(if (config.sourceFile.isNotEmpty()) "File Selected" else "Import .txt File", color = SenPaiOrange)
+                    Button(onClick = { filePickerLauncher.launch("text/plain") }, colors = ButtonDefaults.buttonColors(containerColor = MagikDarkSurface)) {
+                        Text(if (config.sourceFile.isNotEmpty()) "File Selected" else "Import .txt File", color = MagikOrange)
                     }
                 }
             }
@@ -484,7 +484,7 @@ fun SettingsScreen(config: ScanConfig, onConfigChanged: (ScanConfig) -> Unit) {
                                         RadioButton(
                                             selected = config.portType == "Config",
                                             onClick = { onConfigChanged(config.copy(portType = "Config")) },
-                                            colors = RadioButtonDefaults.colors(selectedColor = SenPaiOrange)
+                                            colors = RadioButtonDefaults.colors(selectedColor = MagikOrange)
                                         )
                                         Text("Config", modifier = Modifier.clickable { onConfigChanged(config.copy(portType = "Config")) })
                                     } else {
@@ -495,7 +495,7 @@ fun SettingsScreen(config: ScanConfig, onConfigChanged: (ScanConfig) -> Unit) {
                                                 if (checked) newSet.add(opt.toInt()) else newSet.remove(opt.toInt())
                                                 onConfigChanged(config.copy(portType = "CustomPorts", selectedPorts = newSet, configUrl = ""))
                                             },
-                                            colors = CheckboxDefaults.colors(checkedColor = SenPaiOrange)
+                                            colors = CheckboxDefaults.colors(checkedColor = MagikOrange)
                                         )
                                         Text(opt)
                                     }
@@ -611,7 +611,7 @@ fun InfoDialog(onDismiss: () -> Unit) {
     Dialog(onDismissRequest = onDismiss) {
         Card(
             shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(containerColor = SenPaiDarkSurface),
+            colors = CardDefaults.cardColors(containerColor = MagikDarkSurface),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(
@@ -629,7 +629,7 @@ fun InfoDialog(onDismiss: () -> Unit) {
                         text = stringResource(R.string.info_app_name_title),
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
-                        color = SenPaiOrange
+                        color = MagikOrange
                     )
                     TextButton(onClick = onDismiss) {
                         Text("X", color = Color.Gray, fontWeight = FontWeight.Bold)
@@ -638,7 +638,7 @@ fun InfoDialog(onDismiss: () -> Unit) {
 
                 Card(
                     shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = SenPaiDarkSurface)
+                    colors = CardDefaults.cardColors(containerColor = MagikDarkSurface)
                 ) {
                     Box(
                         modifier = Modifier
@@ -646,8 +646,8 @@ fun InfoDialog(onDismiss: () -> Unit) {
                             .background(
                                 brush = Brush.linearGradient(
                                     colors = listOf(
-                                        SenPaiOrange.copy(alpha = 0.15f),
-                                        SenPaiOrange.copy(alpha = 0.05f)
+                                        MagikOrange.copy(alpha = 0.15f),
+                                        MagikOrange.copy(alpha = 0.05f)
                                     )
                                 )
                             )
@@ -751,7 +751,7 @@ private fun InfoLinkRow(title: String, link: String, onOpen: () -> Unit) {
             Text(
                 text = link,
                 style = MaterialTheme.typography.bodySmall.copy(textDecoration = TextDecoration.Underline),
-                color = SenPaiOrange,
+                color = MagikOrange,
                 maxLines = 2
             )
         }
@@ -759,7 +759,7 @@ private fun InfoLinkRow(title: String, link: String, onOpen: () -> Unit) {
         Icon(
             imageVector = Icons.Filled.ExitToApp,
             contentDescription = stringResource(R.string.info_open_link),
-            tint = SenPaiOrange
+            tint = MagikOrange
         )
     }
 }

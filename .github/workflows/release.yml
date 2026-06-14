@@ -3,6 +3,7 @@ name: Release
 on:
   push:
     tags:
+      - "magik-v*"
       - "v*"
 
 permissions:
@@ -79,10 +80,12 @@ jobs:
 
       - name: Derive version from tag
         run: |
-          TAG="${GITHUB_REF#refs/tags/v}"
-          IFS='.' read -r MAJOR MINOR PATCH <<< "$TAG"
+          TAG="${GITHUB_REF#refs/tags/}"
+          VERSION="${TAG#magik-v}"
+          VERSION="${VERSION#v}"
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
           VERSION_CODE=$((MAJOR * 10000 + MINOR * 100 + PATCH))
-          echo "ANDROID_VERSION_NAME=$TAG" >> "$GITHUB_ENV"
+          echo "ANDROID_VERSION_NAME=$VERSION" >> "$GITHUB_ENV"
           echo "ANDROID_VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
 
       - name: Build Signed Release APKs
@@ -100,7 +103,7 @@ jobs:
       - name: Prepare release files
         run: |
           mkdir -p release-artifacts
-          APP_NAME="SenPaiScanner"
+          APP_NAME="MAGIK"
           VERSION="${ANDROID_VERSION_NAME}"
 
           for apk in android/app/build/outputs/apk/release/*.apk; do

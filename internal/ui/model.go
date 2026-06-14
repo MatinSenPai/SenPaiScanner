@@ -18,10 +18,10 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/matinsenpai/senpaiscanner/internal/banner"
-	"github.com/matinsenpai/senpaiscanner/internal/config"
-	"github.com/matinsenpai/senpaiscanner/internal/result"
-	"github.com/matinsenpai/senpaiscanner/internal/xraytest"
+	"github.com/ehsatn/MAGIK/internal/banner"
+	"github.com/ehsatn/MAGIK/internal/config"
+	"github.com/ehsatn/MAGIK/internal/result"
+	"github.com/ehsatn/MAGIK/internal/xraytest"
 )
 
 // ---------------------------------------------------------------------------
@@ -325,9 +325,9 @@ func getConfigFilePath() string {
 	}
 	dir, err := os.UserConfigDir()
 	if err != nil {
-		return "senpaiscanner-config.json"
+		return "magik-config.json"
 	}
-	appDir := filepath.Join(dir, "senpaiscanner")
+	appDir := filepath.Join(dir, "magik")
 	_ = os.MkdirAll(appDir, 0755)
 	return filepath.Join(appDir, "config.json")
 }
@@ -1688,7 +1688,7 @@ func (m AppModel) viewAbout() string {
 	var sb strings.Builder
 	sb.WriteString(banner.Render(m.bannerFrame / 2))
 	sb.WriteRune('\n')
-	sb.WriteString(styleTitle.Render("  SenPai Scanner\n"))
+	sb.WriteString(styleTitle.Render("  MAGIK\n"))
 	sb.WriteString(styleDim.Render(fmt.Sprintf("  version %s", m.version)))
 	sb.WriteString("\n\n")
 	sb.WriteString(styleNormal.Render("  A Cloudflare IP scanner built for high-latency, restricted networks."))
@@ -1700,7 +1700,7 @@ func (m AppModel) viewAbout() string {
 	sb.WriteString(styleNormal.Render("  jitter, and identifies the colo (PoP) behind each IP."))
 	sb.WriteString("\n\n")
 
-	sb.WriteString(styleDim.Render("  github.com/matinsenpai/senpaiscanner"))
+	sb.WriteString(styleDim.Render("  github.com/ehsatn/MAGIK"))
 	sb.WriteString("\n\n")
 	sb.WriteString(styleHint.Render("  enter/q → back"))
 	return sb.String()
@@ -3425,7 +3425,7 @@ func (m AppModel) exportAllConfigs() string {
 		swapped := cfg.WithEndpoint(parts[0], port)
 		subUrls = append(subUrls, swapped.ToShareURL())
 	}
-	subPath := filepath.Join(dir, "senpaiscanner-sub.txt")
+	subPath := filepath.Join(dir, "magik-sub.txt")
 	_ = os.WriteFile(subPath, []byte(strings.Join(subUrls, "\n")+"\n"), 0644)
 
 	// 2. Export Sing-Box JSON
@@ -3509,7 +3509,7 @@ func (m AppModel) exportAllConfigs() string {
 		"outbounds": sbOutbounds,
 	}
 	sbJSON, _ := json.MarshalIndent(sbConfig, "", "  ")
-	sbPath := filepath.Join(dir, "senpaiscanner-singbox.json")
+	sbPath := filepath.Join(dir, "magik-singbox.json")
 	_ = os.WriteFile(sbPath, sbJSON, 0644)
 
 	// 3. Export Clash YAML
@@ -3564,7 +3564,7 @@ func (m AppModel) exportAllConfigs() string {
 			clashLines = append(clashLines, fmt.Sprintf("      grpc-service-name: %s", cfg.ServiceName))
 		}
 	}
-	clashPath := filepath.Join(dir, "senpaiscanner-clash.yaml")
+	clashPath := filepath.Join(dir, "magik-clash.yaml")
 	_ = os.WriteFile(clashPath, []byte(strings.Join(clashLines, "\n")+"\n"), 0644)
 
 	return fmt.Sprintf("✓ configs exported to Clash, Sing-Box, and Sub files in %s", dir)

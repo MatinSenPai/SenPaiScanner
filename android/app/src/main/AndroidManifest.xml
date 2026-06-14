@@ -10,7 +10,7 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:windowSoftInputMode="adjustResize"
-        android:theme="@style/Theme.SenPaiScanner">
+        android:theme="@style/Theme.Magik">
         <activity
             android:name=".MainActivity"
             android:exported="true">

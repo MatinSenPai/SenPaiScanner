@@ -9,8 +9,8 @@ import (
 
 	"golang.org/x/time/rate"
 
-	"github.com/matinsenpai/senpaiscanner/internal/prober"
-	"github.com/matinsenpai/senpaiscanner/internal/result"
+	"github.com/ehsatn/MAGIK/internal/prober"
+	"github.com/ehsatn/MAGIK/internal/result"
 )
 
 // Config controls engine behaviour.
@@ -113,7 +113,7 @@ func (e *Engine) Run(ctx context.Context, src <-chan net.IP, fn ResultFunc) {
 	}
 }
 
-// RunList probes a fixed slice of IPs (used in `senpaiscanner test`).
+// RunList probes a fixed slice of IPs (used in `magik test`).
 func (e *Engine) RunList(ctx context.Context, ips []net.IP, fn ResultFunc) {
 	ch := make(chan net.IP, len(ips))
 	for _, ip := range ips {

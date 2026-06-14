@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/matinsenpai/senpaiscanner/internal/result"
+	"github.com/ehsatn/MAGIK/internal/result"
 )
 
 func TestLiveResultFileNameFormat(t *testing.T) {
@@ -17,7 +17,7 @@ func TestLiveResultFileNameFormat(t *testing.T) {
 		t.Fatal(err)
 	}
 	base := filepath.Base(path)
-	if !strings.HasPrefix(base, "SenPaiScannerResult-") {
+	if !strings.HasPrefix(base, "MAGIKResult-") {
 		t.Fatalf("basename = %q", base)
 	}
 	if !strings.HasSuffix(base, ".txt") {

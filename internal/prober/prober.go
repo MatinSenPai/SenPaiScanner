@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/matinsenpai/senpaiscanner/internal/result"
+	"github.com/ehsatn/MAGIK/internal/result"
 )
 
 // sniHostnames is a list of well-known Cloudflare hostnames used as SNI values.
@@ -301,7 +301,7 @@ func probeTrace(ctx context.Context, ip net.IP, port int, host string, timeout t
 	if err != nil {
 		return
 	}
-	req.Header.Set("User-Agent", "senpaiscanner/1.0")
+	req.Header.Set("User-Agent", "magik/1.0")
 	req.Host = host
 
 	start := time.Now()
@@ -496,7 +496,7 @@ func probeStability(ctx context.Context, ip net.IP, port int, sni string, timeou
 		}
 	}
 	if idleHold < 500*time.Millisecond {
-		idleHold = 500*time.Millisecond
+		idleHold = 500 * time.Millisecond
 	}
 	if idleHold < 500*time.Millisecond {
 		idleHold = 500 * time.Millisecond
@@ -551,7 +551,7 @@ func probeDownload(ctx context.Context, ip net.IP, port int, timeout time.Durati
 	if err != nil {
 		return 0
 	}
-	req.Header.Set("User-Agent", "senpaiscanner/1.0")
+	req.Header.Set("User-Agent", "magik/1.0")
 
 	start := time.Now()
 	resp, err := client.Do(req)

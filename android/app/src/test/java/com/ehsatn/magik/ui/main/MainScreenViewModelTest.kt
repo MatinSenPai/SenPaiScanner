@@ -1,6 +1,6 @@
-package com.matinsenpai.senpaiscanner.ui.main
+package com.ehsatn.magik.ui.main
 
-import com.matinsenpai.senpaiscanner.data.DataRepository
+import com.ehsatn.magik.data.DataRepository
 import junit.framework.TestCase.assertEquals
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first

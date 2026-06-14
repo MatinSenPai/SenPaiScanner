@@ -1,4 +1,4 @@
-package com.matinsenpai.senpaiscanner.ui.main
+package com.ehsatn.magik.ui.main
 
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -7,7 +7,7 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 
-/** UI tests for [com.matinsenpai.senpaiscanner.ui.main.MainScreen]. */
+/** UI tests for [com.ehsatn.magik.ui.main.MainScreen]. */
 class MainScreenTest {
 
   @get:Rule val composeTestRule = createAndroidComposeRule<ComponentActivity>()

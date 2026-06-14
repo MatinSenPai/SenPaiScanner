@@ -20,12 +20,12 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/matinsenpai/senpaiscanner/internal/engine"
-	"github.com/matinsenpai/senpaiscanner/internal/ipsrc"
-	"github.com/matinsenpai/senpaiscanner/internal/output"
-	"github.com/matinsenpai/senpaiscanner/internal/prober"
-	"github.com/matinsenpai/senpaiscanner/internal/result"
-	"github.com/matinsenpai/senpaiscanner/internal/xraytest"
+	"github.com/ehsatn/MAGIK/internal/engine"
+	"github.com/ehsatn/MAGIK/internal/ipsrc"
+	"github.com/ehsatn/MAGIK/internal/output"
+	"github.com/ehsatn/MAGIK/internal/prober"
+	"github.com/ehsatn/MAGIK/internal/result"
+	"github.com/ehsatn/MAGIK/internal/xraytest"
 )
 
 // scanCancel holds the cancel function for the active scan so the TUI can

@@ -1,4 +1,4 @@
-module github.com/matinsenpai/senpaiscanner
+module github.com/ehsatn/MAGIK
 
 go 1.26.1
 

@@ -1,4 +1,4 @@
-package com.matinsenpai.senpaiscanner.theme
+package com.ehsatn.magik.theme
 
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -11,23 +11,23 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalContext
 
 private val DarkColorScheme = darkColorScheme(
-    primary = SenPaiOrange,
-    secondary = SenPaiOrange,
-    tertiary = SenPaiOrange,
-    background = SenPaiDarkBackground,
-    surface = SenPaiDarkSurface,
-    onPrimary = SenPaiDarkBackground,
-    onSecondary = SenPaiDarkBackground,
-    onTertiary = SenPaiDarkBackground,
-    onBackground = SenPaiTextPrimary,
-    onSurface = SenPaiTextPrimary,
-    error = SenPaiError,
-    onError = SenPaiDarkBackground
+    primary = MagikOrange,
+    secondary = MagikOrange,
+    tertiary = MagikOrange,
+    background = MagikDarkBackground,
+    surface = MagikDarkSurface,
+    onPrimary = MagikDarkBackground,
+    onSecondary = MagikDarkBackground,
+    onTertiary = MagikDarkBackground,
+    onBackground = MagikTextPrimary,
+    onSurface = MagikTextPrimary,
+    error = MagikError,
+    onError = MagikDarkBackground
 )
 
 @Composable
-fun SenPaiScannerTheme(
-  // We force dark theme for SenPaiScanner aesthetic
+fun MagikTheme(
+  // We force dark theme for MAGIK aesthetic
   darkTheme: Boolean = true,
   dynamicColor: Boolean = false,
   content: @Composable () -> Unit,

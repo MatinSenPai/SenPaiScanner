@@ -8,13 +8,14 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptrace"
 	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/matinsenpai/senpaiscanner/internal/xraytest"
+	"github.com/ehsatn/MAGIK/internal/xraytest"
 
 	xcore "github.com/xtls/xray-core/core"
 	"github.com/xtls/xray-core/infra/conf/serial"
@@ -437,7 +438,7 @@ func mobileConnectivityCheckTarget(ctx context.Context, proxyAddr, target, autho
 	if err != nil {
 		return false, 0, err
 	}
-	req.Header.Set("User-Agent", "senpaiscanner/1.0")
+	req.Header.Set("User-Agent", "magik/1.0")
 	if authority != "" {
 		req.Host = authority
 	}
@@ -497,7 +498,7 @@ func mobileProxyRelaxedEndpointCheck(ctx context.Context, proxyAddr, targetURL, 
 	if err != nil {
 		return false, 0, err
 	}
-	req.Header.Set("User-Agent", "senpaiscanner/1.0")
+	req.Header.Set("User-Agent", "magik/1.0")
 	if authority != "" {
 		req.Host = authority
 	}
@@ -573,7 +574,7 @@ func mobileDownload(ctx context.Context, proxyAddr, dlURL string, maxBytes int64
 	if err != nil {
 		return 0, 0, err
 	}
-	req.Header.Set("User-Agent", "senpaiscanner/1.0")
+	req.Header.Set("User-Agent", "magik/1.0")
 	if authority != "" {
 		req.Host = authority
 	}
