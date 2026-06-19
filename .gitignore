@@ -70,3 +70,7 @@ dist/
 # Temporary
 tmp/
 temp/
+
+# Miscellaneous/Local helper scripts
+gen_isps_db.go
+test_fallbacks.go

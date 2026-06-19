@@ -164,11 +164,13 @@ func mobileValidateOnce(ctx context.Context, cfg *xraytest.VLESSConfig, timeout 
 	}
 
 	// Step 2: best-effort speed measurement (does not affect Success).
-	speedCtx, speedCancel := context.WithTimeout(ctx, mobileSpeedBudget(timeout, latency))
-	defer speedCancel()
-	bytesRecv, throughput := mobileSpeedTest(speedCtx, proxyURL, cfg)
-	res.BytesRecv = bytesRecv
-	res.Throughput = throughput
+	if cfg.DownloadTest {
+		speedCtx, speedCancel := context.WithTimeout(ctx, mobileSpeedBudget(timeout, latency))
+		defer speedCancel()
+		bytesRecv, throughput := mobileSpeedTest(speedCtx, proxyURL, cfg)
+		res.BytesRecv = bytesRecv
+		res.Throughput = throughput
+	}
 	res.Success = true
 
 	// Step 3: optional upload speed test.

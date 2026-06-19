@@ -76,7 +76,7 @@ func resultFileDirs() []string {
 	if wd, err := os.Getwd(); err == nil {
 		add(wd)
 	}
-	if exe, err := os.Executable(); err == nil {
+	if exe, err := osExecutable(); err == nil {
 		add(filepath.Dir(exe))
 	}
 	return dirs

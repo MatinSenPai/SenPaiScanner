@@ -2,6 +2,7 @@ package ui
 
 import (
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -173,7 +174,7 @@ func TestLoadDefaultIPsFileFindsWorkingDirectoryFile(t *testing.T) {
 }
 
 func TestWorkingIPsOnlyIncludesSuccessfulValidationResults(t *testing.T) {
-	got := workingIPs([]*xraytest.ValidationResult{
+	got := workingEndpoints([]*xraytest.ValidationResult{
 		{IP: "104.18.1.1", Success: true},
 		{IP: "104.18.1.2", Success: false},
 		{IP: "104.18.1.1", Success: true},
@@ -243,12 +244,12 @@ func TestWorkingEndpointsIncludePorts(t *testing.T) {
 	}
 }
 
-func TestGenericScanCopyDoesNotExportHealthyIPs(t *testing.T) {
+func TestGenericScanCopyHealthyIPs(t *testing.T) {
 	m := AppModel{page: PageResults}
 	next, _ := m.handleResultsKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
 	got := next.(AppModel).statusMsg
-	if !strings.Contains(got, "Find Working IPs") {
-		t.Fatalf("generic copy message = %q", got)
+	if got != "no healthy IPs to copy" {
+		t.Fatalf("expected 'no healthy IPs to copy', got %q", got)
 	}
 }
 
@@ -371,17 +372,19 @@ func TestAppConfigPersistence(t *testing.T) {
 	// Save custom config
 	custom := AppConfig{
 		LastConfig: SavedConfig{
-			IPMode:        1,
-			CountIdx:      3,
-			CountCustom:   "9999",
-			WorkersIdx:    2,
-			WorkersCustom: "111",
-			TimeoutIdx:    1,
-			TimeoutCustom: "4s",
-			Ports:         []int{8443, 2053},
-			ConfigURL:     "vless://test-url",
-			TopNIdx:       1,
-			TopNCustom:    "5",
+			IPMode:              1,
+			CountIdx:            3,
+			CountCustom:         "9999",
+			WorkersIdx:          2,
+			WorkersCustom:       "111",
+			TimeoutIdx:          1,
+			TimeoutCustom:       "4s",
+			Ports:               []int{8443, 2053},
+			ConfigURL:           "vless://test-url",
+			TopNIdx:             1,
+			TopNCustom:          "5",
+			Phase2WorkersIdx:    3,
+			Phase2WorkersCustom: "12",
 		},
 	}
 
@@ -391,7 +394,7 @@ func TestAppConfigPersistence(t *testing.T) {
 
 	// Verify loaded config matches custom config
 	loaded := loadAppConfig()
-	if loaded.LastConfig.IPMode != 1 || loaded.LastConfig.CountCustom != "9999" || loaded.LastConfig.ConfigURL != "vless://test-url" {
+	if loaded.LastConfig.IPMode != 1 || loaded.LastConfig.CountCustom != "9999" || loaded.LastConfig.ConfigURL != "vless://test-url" || loaded.LastConfig.Phase2WorkersIdx != 3 || loaded.LastConfig.Phase2WorkersCustom != "12" {
 		t.Errorf("loaded config does not match custom config: %+v", loaded.LastConfig)
 	}
 
@@ -399,7 +402,7 @@ func TestAppConfigPersistence(t *testing.T) {
 	m := newTestApp(t)
 	m.applySavedConfig(loaded.LastConfig)
 
-	if m.configIPMode != 1 || m.configCountCustom != "9999" || m.configInput.Value() != "vless://test-url" {
+	if m.configIPMode != 1 || m.configCountCustom != "9999" || m.configInput.Value() != "vless://test-url" || m.configPhase2WorkersIdx != 3 || m.configPhase2WorkersCustom != "12" {
 		t.Errorf("model fields do not match applied saved config")
 	}
 
@@ -471,7 +474,7 @@ func TestConfigOptionalCtrlXClearsInput(t *testing.T) {
 
 	// Also test speed URL input clear
 	m2.configSpeedURLInput.SetValue("http://test-speed-url")
-	m2.configOptionalRow = 3
+	m2.configOptionalRow = 6
 
 	res2, _ := m2.Update(tea.KeyMsg{Type: tea.KeyCtrlX})
 	m3 := res2.(AppModel)
@@ -480,22 +483,240 @@ func TestConfigOptionalCtrlXClearsInput(t *testing.T) {
 	}
 }
 
-func TestScanConfigF4TogglesRequireWS(t *testing.T) {
-	m := newTestApp(t)
-	m.page = PageScanConfig
-	m.scanCfg.RequireWS = true
 
-	// Simulate pressing f4
-	res, _ := m.Update(tea.KeyMsg{Type: tea.KeyF4})
-	m2 := res.(AppModel)
-	if m2.scanCfg.RequireWS {
-		t.Error("expected RequireWS to be false after pressing f4")
+
+func TestLoadIPsCommentsAndPorts(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "ips.txt")
+
+	lines := []string{
+		"1.1.1.1:443", // port suffix
+		"2.144.1.2 // Iran Cell Service", // trailing comment with //
+		"  37.156.130.1:80   # Telecom Co", // trailing comment with # and spaces and port
+		"", // empty line
+		"# full line comment",
+		"// another full line comment",
 	}
 
-	// Simulate pressing f4 again
-	res2, _ := m2.Update(tea.KeyMsg{Type: tea.KeyF4})
-	m3 := res2.(AppModel)
-	if !m3.scanCfg.RequireWS {
-		t.Error("expected RequireWS to be true after pressing f4 again")
+	if err := writeIPsFile(path, lines); err != nil {
+		t.Fatal(err)
+	}
+
+	ips, err := loadIPs(path)
+	if err != nil {
+		t.Fatalf("loadIPs failed: %v", err)
+	}
+
+	if len(ips) != 3 {
+		t.Fatalf("expected 3 IPs, got %d", len(ips))
+	}
+
+	expected := map[string]bool{
+		"1.1.1.1":      false,
+		"2.144.1.2":    false,
+		"37.156.130.1": false,
+	}
+
+	for _, ip := range ips {
+		ipStr := ip.String()
+		if _, ok := expected[ipStr]; ok {
+			expected[ipStr] = true
+		} else {
+			t.Errorf("unexpected IP loaded: %s", ipStr)
+		}
+	}
+
+	for ip, found := range expected {
+		if !found {
+			t.Errorf("expected IP %s was not loaded", ip)
+		}
+	}
+}
+
+func TestCopyAndSaveIPsWithISPSuffix(t *testing.T) {
+	// Mock clipboardWriteAll
+	oldClipboardWriteAll := clipboardWriteAll
+	defer func() { clipboardWriteAll = oldClipboardWriteAll }()
+
+	var clipboardText string
+	clipboardWriteAll = func(text string) error {
+		clipboardText = text
+		return nil
+	}
+
+	dir := t.TempDir()
+	oldOsExecutable := osExecutable
+	defer func() { osExecutable = oldOsExecutable }()
+	osExecutable = func() (string, error) {
+		return filepath.Join(dir, "senpaiscanner.exe"), nil
+	}
+
+	oldWd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chdir(oldWd) }()
+
+	endpoints := []string{
+		"1.1.1.1:443", // Non-Iranian IP
+		"2.144.1.2:8443", // Iranian IP (Iran Cell Service and Communication Company)
+	}
+
+	msg := copyAndSaveIPs(endpoints, "MCCI")
+	if !strings.Contains(msg, "copied 2 working endpoints") {
+		t.Errorf("expected copied message, got: %q", msg)
+	}
+
+	// Verify clipboard content
+	expectedClip := "1.1.1.1:443 # MCCI\n2.144.1.2:8443 # MCCI\n"
+	if clipboardText != expectedClip {
+		t.Errorf("unexpected clipboard content:\ngot:  %q\nwant: %q", clipboardText, expectedClip)
+	}
+
+	// Verify working_ips.txt file content
+	filePath := filepath.Join(dir, "working_ips.txt")
+	fileBytes, err := os.ReadFile(filePath)
+	if err != nil {
+		t.Fatalf("failed to read working_ips.txt: %v", err)
+	}
+	if string(fileBytes) != expectedClip {
+		t.Errorf("unexpected working_ips.txt content:\ngot:  %q\nwant: %q", string(fileBytes), expectedClip)
+	}
+}
+
+func TestExportConfigsWithISPSuffix(t *testing.T) {
+	dir := t.TempDir()
+	oldOsExecutable := osExecutable
+	defer func() { osExecutable = oldOsExecutable }()
+	osExecutable = func() (string, error) {
+		return filepath.Join(dir, "senpaiscanner.exe"), nil
+	}
+
+	oldWd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chdir(oldWd) }()
+
+	m := AppModel{
+		configURL: "vless://88888888-8888-8888-8888-888888888888@example.com:443?encryption=none&security=tls&type=ws&host=example.com&path=%2F#MyRemark",
+		ispInfo:   "MCCI",
+		configResults: []*xraytest.ValidationResult{
+			{IP: "1.1.1.1", Port: 443, Success: true},
+			{IP: "2.144.1.2", Port: 8443, Success: true},
+		},
+	}
+
+	msg := m.exportAllConfigs()
+	if !strings.Contains(msg, "configs exported to Clash, Sing-Box, and Sub files") {
+		t.Errorf("expected success message, got: %q", msg)
+	}
+
+	// 1. Verify Clash yaml file
+	clashPath := filepath.Join(dir, "senpaiscanner-clash.yaml")
+	clashBytes, err := os.ReadFile(clashPath)
+	if err != nil {
+		t.Fatalf("failed to read Clash yaml: %v", err)
+	}
+	clashContent := string(clashBytes)
+	if !strings.Contains(clashContent, `name: "CF-Endpoint-1-MCCI"`) {
+		t.Errorf("expected suffixed CF-Endpoint-1-MCCI for Clash, got: %q", clashContent)
+	}
+	if !strings.Contains(clashContent, `name: "CF-Endpoint-2-MCCI"`) {
+		t.Errorf("expected suffixed CF-Endpoint-2-MCCI for Clash, got: %q", clashContent)
+	}
+
+	// 2. Verify Sing-Box json file
+	sbPath := filepath.Join(dir, "senpaiscanner-singbox.json")
+	sbBytes, err := os.ReadFile(sbPath)
+	if err != nil {
+		t.Fatalf("failed to read Sing-Box JSON: %v", err)
+	}
+	sbContent := string(sbBytes)
+	if !strings.Contains(sbContent, `"tag": "CF-Endpoint-1-MCCI"`) {
+		t.Errorf("expected tag CF-Endpoint-1-MCCI in Sing-Box, got: %q", sbContent)
+	}
+	if !strings.Contains(sbContent, `"tag": "CF-Endpoint-2-MCCI"`) {
+		t.Errorf("expected tag CF-Endpoint-2-MCCI in Sing-Box, got: %q", sbContent)
+	}
+
+	// 3. Verify Subscription txt file
+	subPath := filepath.Join(dir, "senpaiscanner-sub.txt")
+	subBytes, err := os.ReadFile(subPath)
+	if err != nil {
+		t.Fatalf("failed to read sub file: %v", err)
+	}
+	subContent := string(subBytes)
+	escaped1 := url.QueryEscape("MyRemark-CF-Endpoint-1-MCCI")
+	escaped2 := url.QueryEscape("MyRemark-CF-Endpoint-2-MCCI")
+	if !strings.Contains(subContent, "#"+escaped1) {
+		t.Errorf("expected sub url with remark #%s, got: %q", escaped1, subContent)
+	}
+	if !strings.Contains(subContent, "#"+escaped2) {
+		t.Errorf("expected sub url with remark #%s, got: %q", escaped2, subContent)
+	}
+}
+
+func TestResolvePhase2Workers(t *testing.T) {
+	tests := []struct {
+		name       string
+		idx        int
+		custom     string
+		wantResult int
+	}{
+		{
+			name:       "valid preset 10",
+			idx:        1,
+			custom:     "",
+			wantResult: 10,
+		},
+		{
+			name:       "valid preset 50",
+			idx:        3,
+			custom:     "",
+			wantResult: 50,
+		},
+		{
+			name:       "custom valid value",
+			idx:        len(configPhase2WorkersLabels) - 1,
+			custom:     "15",
+			wantResult: 15,
+		},
+		{
+			name:       "custom invalid value (zero)",
+			idx:        len(configPhase2WorkersLabels) - 1,
+			custom:     "0",
+			wantResult: 10,
+		},
+		{
+			name:       "custom invalid value (negative)",
+			idx:        len(configPhase2WorkersLabels) - 1,
+			custom:     "-5",
+			wantResult: 10,
+		},
+		{
+			name:       "out of bounds index",
+			idx:        99,
+			custom:     "",
+			wantResult: 10,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := AppModel{
+				configPhase2WorkersIdx:    tt.idx,
+				configPhase2WorkersCustom: tt.custom,
+			}
+			if got := m.resolvePhase2Workers(); got != tt.wantResult {
+				t.Errorf("resolvePhase2Workers() = %d, want %d", got, tt.wantResult)
+			}
+		})
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -20,6 +21,7 @@ import (
 
 	"github.com/matinsenpai/senpaiscanner/internal/banner"
 	"github.com/matinsenpai/senpaiscanner/internal/config"
+	"github.com/matinsenpai/senpaiscanner/internal/logger"
 	"github.com/matinsenpai/senpaiscanner/internal/result"
 	"github.com/matinsenpai/senpaiscanner/internal/xraytest"
 )
@@ -49,9 +51,6 @@ type ErrorMsg struct {
 	Text   string
 }
 
-// ColosDoneMsg signals the colo discovery finished.
-type ColosDoneMsg struct{ ScanID int64 }
-
 // tickMsg drives banner animation and stat refresh.
 type tickMsg time.Time
 
@@ -60,10 +59,6 @@ type tickMsg time.Time
 // ---------------------------------------------------------------------------
 
 var (
-	styleBorder = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("#F6821F"))
-
 	styleTitle = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(lipgloss.Color("#F6821F"))
@@ -165,15 +160,6 @@ var quickTimeoutPresets = []quickPreset{
 	{"Custom", ""},
 }
 
-// quickSetupRow identifies which row is focused on the Quick Scan setup page.
-type quickSetupRow int
-
-const (
-	qRowCount   quickSetupRow = 0
-	qRowWorkers quickSetupRow = 1
-	qRowTimeout quickSetupRow = 2
-)
-
 // ---------------------------------------------------------------------------
 // AppModel — root Bubble Tea model
 // ---------------------------------------------------------------------------
@@ -190,19 +176,8 @@ type AppModel struct {
 	// home menu
 	menuIdx int
 
-	// quick scan setup (3-row picker)
-	quickRow         quickSetupRow
-	quickCountIdx    int
-	quickWorkersIdx  int
-	quickTimeoutIdx  int
-	quickCustomInput textinput.Model
-	quickCustomRow   quickSetupRow // which row triggered custom input
-	quickCustomMode  bool
-
 	// scan config form
 	scanCfg    ScanConfig
-	formInputs []textinput.Model
-	formFocus  int
 	modeIdx    int
 
 	// live scan state
@@ -214,10 +189,6 @@ type AppModel struct {
 	scanDone     bool
 	scanStarted  time.Time
 	scanTotal    int
-
-	// colos
-	colosResults []*result.Result
-	colosDone    bool
 
 	// scan with config
 	configInput    textinput.Model
@@ -236,12 +207,12 @@ type AppModel struct {
 	configIPMode        int // 0=random Cloudflare IPs, 1=from ips.txt
 	configCustomInput   textinput.Model
 	configCustomMode    bool
-	configCustomRow     int    // 1=count, 2=workers, 3=timeout, 5=topN custom, 6=min speed custom, 7=speed size custom
+	configCustomRow     int    // 1=count, 2=workers, 3=timeout, 5=topN custom, 6=min download custom, 7=speed size custom, 8=min upload custom
 	configCountCustom   string // value when Custom count is selected
 	configWorkersCustom string // value when Custom workers is selected
 	configTimeoutCustom string // value when Custom timeout is selected
 	configTopNCustom    string // value when Custom top N is selected
-	configOptionalRow   int    // 0=config URL, 1=validate top N, 2=min speed, 3=speed url, 4=speed size, 5=upload test
+	configOptionalRow   int    // 0=config URL, 1=top N, 2=min download, 3=min upload, 4=speed size, 5=speed URL, 6=start scan
 	configPortFocus     int
 	configSelectedPorts map[int]bool
 	// phase 1 state
@@ -252,13 +223,20 @@ type AppModel struct {
 	configPhase1Total   int // intended IP count for Phase 1 progress display
 	liveResultPath      string
 
-	configMinSpeedIdx     int
-	configMinSpeedCustom  string
+	configMinDownloadIdx     int
+	configMinDownloadCustom  string
+	configMinUploadIdx    int
+	configMinUploadCustom string
 	configSpeedURLInput   textinput.Model
 	configSpeedSizeIdx    int
 	configSpeedSizeCustom string
+	configPhase2WorkersIdx    int
+	configPhase2WorkersCustom string
 	configUploadTest      bool
 	ispInfo               string
+
+	// log viewer
+	logViewerLines []string
 
 	// shared
 	statusMsg string
@@ -288,8 +266,6 @@ const (
 
 var modes = []string{"tls", "tcp", "http"}
 
-const phase2WorkersCount = 10
-
 // SavedConfig represents the scan settings that can be persisted.
 type SavedConfig struct {
 	IPMode          int    `json:"ip_mode"`
@@ -303,13 +279,18 @@ type SavedConfig struct {
 	ConfigURL       string `json:"config_url"`
 	TopNIdx         int    `json:"top_n_idx"`
 	TopNCustom      string `json:"top_n_custom"`
-	MinSpeedIdx     int    `json:"min_speed_idx"`
-	MinSpeedCustom  string `json:"min_speed_custom"`
+	MinDownloadIdx     int    `json:"min_download_idx"`
+	MinDownloadCustom  string `json:"min_download_custom"`
+	MinUploadIdx    int    `json:"min_upload_idx"`
+	MinUploadCustom string `json:"min_upload_custom"`
 	SpeedURL        string `json:"speed_url"`
 	SpeedSizeIdx    int    `json:"speed_size_idx"`
 	SpeedSizeCustom string `json:"speed_size_custom"`
+	DownloadTest    bool   `json:"download_test"`
 	UploadTest      bool   `json:"upload_test"`
 	RequireWS       bool   `json:"require_ws"`
+	Phase2WorkersIdx    int    `json:"phase2_workers_idx"`
+	Phase2WorkersCustom string `json:"phase2_workers_custom"`
 }
 
 // AppConfig wraps SavedConfig to allow for future settings.
@@ -368,12 +349,16 @@ func defaultAppConfig() AppConfig {
 			ConfigURL:       "",
 			TopNIdx:         2, // 50
 			TopNCustom:      "",
-			MinSpeedIdx:     0, // None
-			MinSpeedCustom:  "",
+			MinDownloadIdx:  1, // None (index 1)
+			MinDownloadCustom: "",
+			MinUploadIdx:    0, // OFF
+			MinUploadCustom: "",
 			SpeedURL:        "",
 			SpeedSizeIdx:    1, // 512 KB
 			SpeedSizeCustom: "",
 			RequireWS:       true,
+			Phase2WorkersIdx: 1, // 10 (index 1)
+			Phase2WorkersCustom: "",
 		},
 	}
 }
@@ -388,11 +373,15 @@ func (m *AppModel) applySavedConfig(cfg SavedConfig) {
 	m.configTimeoutCustom = cfg.TimeoutCustom
 	m.configTopNIdx = cfg.TopNIdx
 	m.configTopNCustom = cfg.TopNCustom
-	m.configMinSpeedIdx = cfg.MinSpeedIdx
-	m.configMinSpeedCustom = cfg.MinSpeedCustom
+	m.configMinDownloadIdx = cfg.MinDownloadIdx
+	m.configMinDownloadCustom = cfg.MinDownloadCustom
+	m.configMinUploadIdx = cfg.MinUploadIdx
+	m.configMinUploadCustom = cfg.MinUploadCustom
 	m.configSpeedURLInput.SetValue(cfg.SpeedURL)
 	m.configSpeedSizeIdx = cfg.SpeedSizeIdx
 	m.configSpeedSizeCustom = cfg.SpeedSizeCustom
+	m.configPhase2WorkersIdx = cfg.Phase2WorkersIdx
+	m.configPhase2WorkersCustom = cfg.Phase2WorkersCustom
 	m.configUploadTest = cfg.UploadTest
 	m.configSelectedPorts = make(map[int]bool)
 	for _, port := range cfg.Ports {
@@ -414,11 +403,6 @@ func NewApp(version string) AppModel {
 	sp.Spinner = spinner.Dot
 	sp.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#F6821F"))
 
-	customInput := textinput.New()
-	customInput.Placeholder = "e.g. 50000"
-	customInput.CharLimit = 10
-	customInput.Width = 14
-
 	speedURLInput := textinput.New()
 	speedURLInput.Placeholder = "empty = default (speed.cloudflare.com)"
 	speedURLInput.CharLimit = 500
@@ -432,7 +416,6 @@ func NewApp(version string) AppModel {
 		width:               120,
 		height:              40,
 		scanStarted:         time.Now(),
-		quickCustomInput:    customInput,
 		configSpeedURLInput: speedURLInput,
 	}
 
@@ -454,7 +437,6 @@ func NewApp(version string) AppModel {
 	m.applySavedConfig(appCfg.LastConfig)
 
 	m.modeIdx = modeIndex(m.scanCfg.Mode)
-	m.buildFormInputs()
 	return m
 }
 
@@ -465,35 +447,6 @@ func modeIndex(mode string) int {
 		}
 	}
 	return 0
-}
-
-func (m *AppModel) buildFormInputs() {
-	fields := []struct{ placeholder, value string }{
-		{"count (default 500)", m.scanCfg.Count},
-		{"concurrency (default 50)", m.scanCfg.Concurrency},
-		{"timeout (default 5s)", m.scanCfg.Timeout},
-		{"tries per IP (default 4)", m.scanCfg.Tries},
-		{"port (default 443)", m.scanCfg.Port},
-		{"CIDR filter (e.g. 104.16.0.0/13, empty = all CF)", m.scanCfg.CIDR},
-		{"output file (.csv/.json/.txt, empty = none)", m.scanCfg.OutputFile},
-		{"colo filter (e.g. FRA,AMS, empty = all)", m.scanCfg.ColoFilter},
-		{"SNI override (empty = auto-rotate)", m.scanCfg.SNI},
-	}
-
-	inputs := make([]textinput.Model, len(fields))
-	for i, f := range fields {
-		ti := textinput.New()
-		ti.Placeholder = f.placeholder
-		ti.SetValue(f.value)
-		ti.CharLimit = 80
-		ti.Width = 50
-		if i == 0 {
-			ti.Focus()
-		}
-		inputs[i] = ti
-	}
-	m.formInputs = inputs
-	m.formFocus = 0
 }
 
 // ---------------------------------------------------------------------------
@@ -541,12 +494,8 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.ScanID != m.activeScanID || msg.Result == nil {
 			return m, nil
 		}
-		if m.page == PageLiveColos {
-			m.colosResults = append(m.colosResults, msg.Result)
-		} else {
-			m.scanResults = append(m.scanResults, msg.Result)
-			result.Sort(m.scanResults, m.sortBy)
-		}
+		m.scanResults = append(m.scanResults, msg.Result)
+		result.Sort(m.scanResults, m.sortBy)
 		return m, nil
 
 	case StatsMsg:
@@ -567,12 +516,6 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case ColosDoneMsg:
-		if msg.ScanID == m.activeScanID {
-			m.colosDone = true
-		}
-		return m, nil
-
 	case ConfigProgressMsg:
 		m.configResults = append(m.configResults, msg.Result)
 		m.configTotal = msg.Total
@@ -581,6 +524,15 @@ func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case ConfigDoneMsg:
 		m.configScanning = false
 		m.configDone = true
+		sort.Slice(m.configResults, func(i, j int) bool {
+			if m.configResults[i].Success != m.configResults[j].Success {
+				return m.configResults[i].Success
+			}
+			if m.configResults[i].Throughput != m.configResults[j].Throughput {
+				return m.configResults[i].Throughput > m.configResults[j].Throughput
+			}
+			return m.configResults[i].Latency < m.configResults[j].Latency
+		})
 		return m, nil
 
 	case ConfigPhase1ResultMsg:
@@ -645,29 +597,25 @@ func (m AppModel) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch m.page {
 	case PageHome:
 		return m.handleHomeKey(msg)
-	case PageQuickScanCount:
-		return m.handleQuickCountKey(msg)
-	case PageScanConfig:
-		return m.handleConfigKey(msg)
 	case PageLiveScan:
 		return m.handleLiveScanKey(msg)
 	case PageResults:
 		return m.handleResultsKey(msg)
-	case PageColos, PageLiveColos:
-		return m.handleColosKey(msg)
 	case PageAbout:
 		if msg.String() == "q" || msg.String() == "esc" || msg.String() == "enter" {
 			m.page = PageHome
 		}
 		return m, nil
 	case PageScanWithConfig:
-		return m.handleScanWithConfigKey(msg)
+		return m.handleScanSetupKey(msg)
 	case PageConfigOptional:
 		return m.handleConfigOptionalKey(msg)
 	case PageConfigPhase1:
 		return m.handleConfigPhase1Key(msg)
 	case PageConfigPhase2:
-		return m.handleScanWithConfigKey(msg)
+		return m.handlePhase2Key(msg)
+	case PageLogViewer:
+		return m.handleLogViewerKey(msg)
 	}
 	return m, nil
 }
@@ -684,7 +632,7 @@ func (m AppModel) handleHomeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.menuIdx < len(menuEntries)-1 {
 			m.menuIdx++
 		}
-	case "enter", " ":
+	case "enter":
 		return m.selectMenuItem()
 	}
 	return m, nil
@@ -724,298 +672,6 @@ func (m AppModel) selectMenuItem() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m AppModel) handleQuickCountKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// If the user is typing a custom value, route keys there first.
-	if m.quickCustomMode {
-		switch msg.String() {
-		case "ctrl+c":
-			return m, tea.Quit
-		case "esc":
-			m.quickCustomMode = false
-			m.quickCustomInput.Blur()
-			return m, nil
-		case "enter":
-			val := strings.TrimSpace(m.quickCustomInput.Value())
-			return m.applyCustomValue(val)
-		}
-		return m.updateFormInputs(msg)
-	}
-
-	presets := m.presetsForRow(m.quickRow)
-	idx := m.idxForRow(m.quickRow)
-
-	switch msg.String() {
-	case "ctrl+c":
-		return m, tea.Quit
-	case "esc", "q":
-		m.page = PageHome
-	case "up", "k":
-		if m.quickRow > 0 {
-			m.quickRow--
-		}
-	case "down", "j":
-		if int(m.quickRow) < 2 {
-			m.quickRow++
-		}
-	case "left", "h":
-		if idx > 0 {
-			m.setIdxForRow(m.quickRow, idx-1)
-		}
-	case "right", "l":
-		if idx < len(presets)-1 {
-			m.setIdxForRow(m.quickRow, idx+1)
-		}
-	case "enter", " ":
-		p := presets[idx]
-		if p.value == "" {
-			// Activate custom input for this row
-			m.quickCustomRow = m.quickRow
-			m.quickCustomMode = true
-			m.quickCustomInput.SetValue("")
-			m.quickCustomInput.Placeholder = m.customPlaceholderForRow(m.quickRow)
-			m.quickCustomInput.CharLimit = m.customCharLimitForRow(m.quickRow)
-			m.quickCustomInput.Focus()
-			return m, textinput.Blink
-		}
-		// If all non-custom rows have a selection, launch
-		return m.launchQuickScan()
-	}
-	return m, nil
-}
-
-func (m AppModel) presetsForRow(row quickSetupRow) []quickPreset {
-	switch row {
-	case qRowWorkers:
-		return quickWorkersPresets
-	case qRowTimeout:
-		return quickTimeoutPresets
-	default:
-		return quickCountPresets
-	}
-}
-
-func (m AppModel) idxForRow(row quickSetupRow) int {
-	switch row {
-	case qRowWorkers:
-		return m.quickWorkersIdx
-	case qRowTimeout:
-		return m.quickTimeoutIdx
-	default:
-		return m.quickCountIdx
-	}
-}
-
-func (m *AppModel) setIdxForRow(row quickSetupRow, idx int) {
-	switch row {
-	case qRowWorkers:
-		m.quickWorkersIdx = idx
-	case qRowTimeout:
-		m.quickTimeoutIdx = idx
-	default:
-		m.quickCountIdx = idx
-	}
-}
-
-func (m AppModel) customPlaceholderForRow(row quickSetupRow) string {
-	switch row {
-	case qRowWorkers:
-		return "e.g. 150"
-	case qRowTimeout:
-		return "e.g. 4s"
-	default:
-		return "e.g. 50000"
-	}
-}
-
-func (m AppModel) customCharLimitForRow(row quickSetupRow) int {
-	switch row {
-	case qRowTimeout:
-		return 8
-	default:
-		return 10
-	}
-}
-
-// applyCustomValue stores the typed value back into the right row index and
-// advances to the next row or launches if on the last row.
-func (m AppModel) applyCustomValue(val string) (tea.Model, tea.Cmd) {
-	if val == "" {
-		// restore placeholder default
-		switch m.quickCustomRow {
-		case qRowCount:
-			val = "5000"
-		case qRowWorkers:
-			val = "100"
-		case qRowTimeout:
-			val = "3s"
-		}
-	}
-	// Store in a dedicated custom-value slot by overwriting the last preset's value.
-	// We use a simpler approach: just store in scanCfg directly and flag "custom used".
-	switch m.quickCustomRow {
-	case qRowCount:
-		m.scanCfg.Count = val
-		m.quickCountIdx = len(quickCountPresets) - 1 // keep "Custom" highlighted
-	case qRowWorkers:
-		m.scanCfg.Concurrency = val
-		m.quickWorkersIdx = len(quickWorkersPresets) - 1
-	case qRowTimeout:
-		m.scanCfg.Timeout = val
-		m.quickTimeoutIdx = len(quickTimeoutPresets) - 1
-	}
-	m.quickCustomMode = false
-	m.quickCustomInput.Blur()
-	if m.quickCustomRow < qRowTimeout {
-		m.quickRow = m.quickCustomRow + 1
-		return m, nil
-	}
-	m.quickRow = qRowTimeout
-	return m.launchQuickScan()
-}
-
-func (m AppModel) customValueForRow(row quickSetupRow) string {
-	switch row {
-	case qRowWorkers:
-		return m.scanCfg.Concurrency
-	case qRowTimeout:
-		return m.scanCfg.Timeout
-	default:
-		return m.scanCfg.Count
-	}
-}
-
-func (m AppModel) customLabelForRow(row quickSetupRow) string {
-	value := strings.TrimSpace(m.customValueForRow(row))
-	if value == "" {
-		return "Custom"
-	}
-	return "Custom: " + value
-}
-
-func (m AppModel) customHelpForRow(row quickSetupRow) string {
-	switch row {
-	case qRowWorkers:
-		return "type an integer worker count, e.g. 75 or 150"
-	case qRowTimeout:
-		return "type a Go duration, e.g. 4s, 1500ms, 8s"
-	default:
-		return "type an integer IP count, e.g. 50000"
-	}
-}
-
-func (m AppModel) launchQuickScan() (tea.Model, tea.Cmd) {
-	cfg := defaultScanConfig()
-
-	// Count
-	cp := quickCountPresets[m.quickCountIdx]
-	if cp.value != "" {
-		cfg.Count = cp.value
-	} else if m.scanCfg.Count != "" {
-		cfg.Count = m.scanCfg.Count
-	}
-
-	// Workers
-	wp := quickWorkersPresets[m.quickWorkersIdx]
-	if wp.value != "" {
-		cfg.Concurrency = wp.value
-	} else if m.scanCfg.Concurrency != "" {
-		cfg.Concurrency = m.scanCfg.Concurrency
-	}
-
-	// Timeout
-	tp := quickTimeoutPresets[m.quickTimeoutIdx]
-	if tp.value != "" {
-		cfg.Timeout = tp.value
-	} else if m.scanCfg.Timeout != "" {
-		cfg.Timeout = m.scanCfg.Timeout
-	}
-
-	m.scanCfg = cfg
-	m.activeScanID = nextScanID()
-	m.statusMsg = ""
-	m.scanResults = nil
-	m.scanDone = false
-	m.scanStats = StatsMsg{ScanID: m.activeScanID}
-	m.scanStarted = time.Now()
-	n, _ := fmt.Sscanf(cfg.Count, "%d", &m.scanTotal)
-	if n == 0 {
-		m.scanTotal = 0
-	}
-	m.page = PageLiveScan
-	return m, StartScanCmd(cfg, m.activeScanID)
-}
-
-func (m AppModel) handleConfigKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "ctrl+c":
-		return m, tea.Quit
-	case "esc":
-		m.page = PageHome
-		return m, nil
-	case "tab", "down":
-		m.formFocus = (m.formFocus + 1) % len(m.formInputs)
-		for i := range m.formInputs {
-			if i == m.formFocus {
-				m.formInputs[i].Focus()
-			} else {
-				m.formInputs[i].Blur()
-			}
-		}
-	case "shift+tab", "up":
-		m.formFocus = (m.formFocus - 1 + len(m.formInputs)) % len(m.formInputs)
-		for i := range m.formInputs {
-			if i == m.formFocus {
-				m.formInputs[i].Focus()
-			} else {
-				m.formInputs[i].Blur()
-			}
-		}
-	case "ctrl+left", "ctrl+right":
-		if msg.String() == "ctrl+right" {
-			m.modeIdx = (m.modeIdx + 1) % len(modes)
-		} else {
-			m.modeIdx = (m.modeIdx - 1 + len(modes)) % len(modes)
-		}
-		m.scanCfg.Mode = modes[m.modeIdx]
-	case "f2":
-		m.scanCfg.UseV4 = !m.scanCfg.UseV4
-	case "f3":
-		m.scanCfg.UseV6 = !m.scanCfg.UseV6
-	case "f4":
-		m.scanCfg.RequireWS = !m.scanCfg.RequireWS
-	case "enter":
-		m.saveScanConfig()
-		m.activeScanID = nextScanID()
-		m.statusMsg = ""
-		m.scanResults = nil
-		m.scanDone = false
-		m.scanStats = StatsMsg{ScanID: m.activeScanID}
-		m.scanStarted = time.Now()
-		n, _ := fmt.Sscanf(m.scanCfg.Count, "%d", &m.scanTotal)
-		if n == 0 {
-			m.scanTotal = 0
-		}
-		m.page = PageLiveScan
-		return m, StartScanCmd(m.scanCfg, m.activeScanID)
-	}
-	return m.updateFormInputs(msg)
-}
-
-func (m *AppModel) saveScanConfig() {
-	if len(m.formInputs) >= 9 {
-		m.scanCfg.Count = m.formInputs[0].Value()
-		m.scanCfg.Concurrency = m.formInputs[1].Value()
-		m.scanCfg.Timeout = m.formInputs[2].Value()
-		m.scanCfg.Tries = m.formInputs[3].Value()
-		m.scanCfg.Port = m.formInputs[4].Value()
-		m.scanCfg.CIDR = m.formInputs[5].Value()
-		m.scanCfg.OutputFile = m.formInputs[6].Value()
-		m.scanCfg.ColoFilter = m.formInputs[7].Value()
-		m.scanCfg.SNI = m.formInputs[8].Value()
-		m.scanCfg.Mode = modes[m.modeIdx]
-	}
-}
-
 func (m AppModel) handleLiveScanKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "ctrl+c":
@@ -1052,12 +708,13 @@ func (m AppModel) handleResultsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.sortBy = result.SortBy(m.sortIdx)
 		result.Sort(m.scanResults, m.sortBy)
 	case "c":
-		m.statusMsg = "use Find Working IPs to copy config-tested IPs"
+		m.statusMsg = m.copyHealthyIPsToClipboard()
 	}
 	return m, nil
 }
 
 var clipboardWriteAll = clipboard.WriteAll
+var osExecutable = os.Executable
 
 // copyHealthyIPsToClipboard writes one IP per line to the system clipboard
 // and returns a short status message to display to the user.
@@ -1068,8 +725,12 @@ func (m AppModel) copyHealthyIPsToClipboard() string {
 	}
 	var sb strings.Builder
 	for _, r := range top {
-		sb.WriteString(r.IP.String())
-		sb.WriteRune('\n')
+		ipStr := r.IP.String()
+		if m.ispInfo != "" {
+			sb.WriteString(fmt.Sprintf("%s # %s\n", ipStr, m.ispInfo))
+		} else {
+			sb.WriteString(ipStr + "\n")
+		}
 	}
 	if err := clipboard.WriteAll(sb.String()); err != nil {
 		return fmt.Sprintf("clipboard error: %v", err)
@@ -1082,11 +743,7 @@ func (m AppModel) copyWorkingIPs() string {
 	if len(endpoints) == 0 {
 		return "no working endpoints to copy"
 	}
-	return copyAndSaveIPs(endpoints)
-}
-
-func workingIPs(results []*xraytest.ValidationResult) []string {
-	return workingEndpoints(results)
+	return copyAndSaveIPs(endpoints, m.ispInfo)
 }
 
 func workingEndpoints(results []*xraytest.ValidationResult) []string {
@@ -1135,10 +792,18 @@ func formatValidationLatency(latency time.Duration) string {
 	return fmt.Sprintf("%.1fs", latency.Seconds())
 }
 
-func copyAndSaveIPs(ips []string) string {
-	text := strings.Join(ips, "\n") + "\n"
+func copyAndSaveIPs(ips []string, isp string) string {
+	suffixed := make([]string, len(ips))
+	for i, ep := range ips {
+		if isp != "" {
+			suffixed[i] = fmt.Sprintf("%s # %s", ep, isp)
+		} else {
+			suffixed[i] = ep
+		}
+	}
+	text := strings.Join(suffixed, "\n") + "\n"
 	clipErr := clipboardWriteAll(text)
-	path, fileErr := writeIPsBesideExecutable(ips)
+	path, fileErr := writeIPsBesideExecutable(suffixed)
 
 	switch {
 	case clipErr == nil && fileErr == nil:
@@ -1153,7 +818,7 @@ func copyAndSaveIPs(ips []string) string {
 }
 
 func writeIPsBesideExecutable(ips []string) (string, error) {
-	exe, err := os.Executable()
+	exe, err := osExecutable()
 	dir := ""
 	if err == nil {
 		dir = filepath.Dir(exe)
@@ -1190,36 +855,10 @@ func writeIPsFile(path string, ips []string) error {
 	return os.WriteFile(path, []byte(text), 0644)
 }
 
-func (m AppModel) handleColosKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "ctrl+c":
-		return m, tea.Quit
-	case "q", "esc", "enter":
-		if m.colosDone || m.page == PageColos {
-			m.page = PageHome
-		}
-	}
-	return m, nil
-}
-
 // updateFormInputs forwards non-key messages (e.g. paste events, resize) to
-// every focused text input so they can handle them independently.
+// the currently focused text input only.
 func (m AppModel) updateFormInputs(msg tea.Msg) (AppModel, tea.Cmd) {
 	var cmds []tea.Cmd
-
-	if m.page == PageQuickScanCount && m.quickCustomMode {
-		var cmd tea.Cmd
-		m.quickCustomInput, cmd = m.quickCustomInput.Update(msg)
-		cmds = append(cmds, cmd)
-	}
-
-	if m.page == PageScanConfig && len(m.formInputs) > 0 {
-		for i := range m.formInputs {
-			var cmd tea.Cmd
-			m.formInputs[i], cmd = m.formInputs[i].Update(msg)
-			cmds = append(cmds, cmd)
-		}
-	}
 
 	if m.page == PageScanWithConfig && !m.configScanning && !m.configDone {
 		if m.configCustomMode {
@@ -1234,14 +873,14 @@ func (m AppModel) updateFormInputs(msg tea.Msg) (AppModel, tea.Cmd) {
 			var cmd tea.Cmd
 			m.configCustomInput, cmd = m.configCustomInput.Update(msg)
 			cmds = append(cmds, cmd)
-		} else {
+		} else if m.configOptionalRow == 0 {
 			var cmd tea.Cmd
 			m.configInput, cmd = m.configInput.Update(msg)
 			cmds = append(cmds, cmd)
-
-			var cmd2 tea.Cmd
-			m.configSpeedURLInput, cmd2 = m.configSpeedURLInput.Update(msg)
-			cmds = append(cmds, cmd2)
+		} else if m.configOptionalRow == 3 {
+			var cmd tea.Cmd
+			m.configSpeedURLInput, cmd = m.configSpeedURLInput.Update(msg)
+			cmds = append(cmds, cmd)
 		}
 	}
 
@@ -1256,16 +895,10 @@ func (m AppModel) View() string {
 	switch m.page {
 	case PageHome:
 		return m.viewHome()
-	case PageQuickScanCount:
-		return m.viewQuickScanCount()
-	case PageScanConfig:
-		return m.viewScanConfig()
 	case PageLiveScan:
 		return m.viewLiveScan()
 	case PageResults:
 		return m.viewResults()
-	case PageLiveColos:
-		return m.viewLiveColos()
 	case PageAbout:
 		return m.viewAbout()
 	case PageScanWithConfig:
@@ -1276,6 +909,8 @@ func (m AppModel) View() string {
 		return m.viewConfigPhase1()
 	case PageConfigPhase2:
 		return m.viewScanWithConfig()
+	case PageLogViewer:
+		return m.viewLogViewer()
 	}
 	return ""
 }
@@ -1328,176 +963,6 @@ func (m AppModel) viewHome() string {
 
 	sb.WriteRune('\n')
 	sb.WriteString(styleHint.Render("  ↑/↓ navigate   enter select   q quit"))
-	sb.WriteRune('\n')
-
-	return sb.String()
-}
-
-// ---------------------------------------------------------------------------
-// Quick Scan setup page (3-row picker: Count / Workers / Timeout)
-// ---------------------------------------------------------------------------
-
-func (m AppModel) viewQuickScanCount() string {
-	var sb strings.Builder
-
-	separator := fmt.Sprintf("  %v\n\n", strings.Repeat("─", 64))
-
-	sb.WriteString(banner.Render(m.bannerFrame / 2))
-	sb.WriteRune('\n')
-	sb.WriteString(styleTitle.Render("  ⚡  Quick Scan Setup\n"))
-	sb.WriteString(separator)
-
-	type rowDef struct {
-		label   string
-		presets []quickPreset
-		selIdx  int
-		row     quickSetupRow
-		hint    string
-	}
-
-	rows := []rowDef{
-		{
-			label:   "  Count   ",
-			presets: quickCountPresets,
-			selIdx:  m.quickCountIdx,
-			row:     qRowCount,
-			hint:    "number of Cloudflare IPs to probe",
-		},
-		{
-			label:   "  Workers ",
-			presets: quickWorkersPresets,
-			selIdx:  m.quickWorkersIdx,
-			row:     qRowWorkers,
-			hint:    "parallel goroutines — higher is faster but harder on slow networks",
-		},
-		{
-			label:   "  Timeout ",
-			presets: quickTimeoutPresets,
-			selIdx:  m.quickTimeoutIdx,
-			row:     qRowTimeout,
-			hint:    "per-probe deadline — raise this if you see lots of timeouts",
-		},
-	}
-
-	for _, r := range rows {
-		focused := m.quickRow == r.row
-		labelStyle := styleHeader
-		if focused {
-			labelStyle = styleAccent
-		}
-		sb.WriteString(labelStyle.Render(r.label))
-
-		// Render preset pills
-		for i, p := range r.presets {
-			label := strings.SplitN(p.label, " —", 2)[0] // short label only
-			// trim trailing spaces
-			label = strings.TrimRight(label, " ")
-			if p.value == "" {
-				label = m.customLabelForRow(r.row)
-			}
-
-			if i == r.selIdx {
-				if p.value == "" && m.quickCustomMode && m.quickCustomRow == r.row {
-					// Active custom input
-					sb.WriteString(fmt.Sprintf("%s%s%s",
-						styleAccent.Render("["),
-						m.quickCustomInput.View(),
-						styleAccent.Render("]"),
-					))
-				} else {
-					sb.WriteString(styleSelected.Render(fmt.Sprintf(" %s ", label)))
-				}
-			} else {
-				sb.WriteString(styleDim.Render(fmt.Sprintf(" %s ", label)))
-			}
-			if i < len(r.presets)-1 {
-				sb.WriteString(styleSep.Render(" │ "))
-			}
-		}
-		sb.WriteRune('\n')
-
-		// Show hint only for the focused row
-		if focused {
-			sb.WriteString(styleHint.Render("    " + r.hint + "\n"))
-		}
-		sb.WriteRune('\n')
-	}
-
-	if m.quickCustomMode {
-		sb.WriteString(styleHint.Render("  " + m.customHelpForRow(m.quickCustomRow) + "   enter confirm   esc cancel"))
-	} else {
-		sb.WriteString(styleHint.Render("  ↑/↓ row   ←/→ option   enter select/start   esc back"))
-	}
-	sb.WriteRune('\n')
-	return sb.String()
-}
-
-// ---------------------------------------------------------------------------
-// Scan Config page
-// ---------------------------------------------------------------------------
-
-func (m AppModel) viewScanConfig() string {
-	var sb strings.Builder
-
-	sb.WriteString(styleTitle.Render("\n  ⚙  Custom Scan Configuration\n"))
-	sb.WriteString(fmt.Sprintf("%s\n\n",
-		styleSep.Render("  "+strings.Repeat("─", 56)),
-	))
-
-	labels := []string{
-		"Count      ", "Workers    ", "Timeout    ", "Tries      ", "Port       ",
-		"CIDR       ", "Output     ", "Colo Filter", "SNI        ",
-	}
-
-	for i, inp := range m.formInputs {
-		prefix := "  "
-		label := styleHeader.Render(labels[i] + "  ")
-		if i == m.formFocus {
-			prefix = styleAccent.Render("  ▶ ")
-			label = styleAccent.Render(labels[i] + "  ")
-		}
-		sb.WriteString(fmt.Sprintf("%s%s%s\n", prefix, label, inp.View()))
-	}
-
-	// Mode toggle
-	sb.WriteRune('\n')
-	sb.WriteString(styleHeader.Render("  Mode        "))
-	for i, mode := range modes {
-		if i == m.modeIdx {
-			sb.WriteString(styleSelected.Render(fmt.Sprintf(" %s ", strings.ToUpper(mode))))
-		} else {
-			sb.WriteString(styleDim.Render(fmt.Sprintf(" %s ", strings.ToUpper(mode))))
-		}
-		sb.WriteString("  ")
-	}
-	sb.WriteString(fmt.Sprintf("%s\n", styleDim.Render("  ←/→ to cycle")))
-
-	// IPv4/v6 toggles
-	v4s := styleGood.Render("ON")
-	if !m.scanCfg.UseV4 {
-		v4s = styleBad.Render("OFF")
-	}
-	v6s := styleGood.Render("ON")
-	if !m.scanCfg.UseV6 {
-		v6s = styleBad.Render("OFF")
-	}
-	sb.WriteString(fmt.Sprintf("%s%s%s\n", styleHeader.Render("  IPv4         "), v4s, styleDim.Render("  F2 toggle")))
-	sb.WriteString(fmt.Sprintf("%s%s%s\n", styleHeader.Render("  IPv6         "), v6s, styleDim.Render("  F3 toggle")))
-
-	if m.scanCfg.Mode == "http" {
-		wss := styleGood.Render("ON")
-		if !m.scanCfg.RequireWS {
-			wss = styleBad.Render("OFF")
-		}
-		sb.WriteString(fmt.Sprintf("%s%s%s\n", styleHeader.Render("  WebSocket    "), wss, styleDim.Render("  F4 toggle (Require WebSocket)")))
-	}
-
-	sb.WriteRune('\n')
-	hint := "  tab/↑↓ navigate   enter start scan   esc back"
-	if m.scanCfg.Mode == "http" {
-		hint += "   f4 toggle ws"
-	}
-	sb.WriteString(styleHint.Render(hint))
 	sb.WriteRune('\n')
 
 	return sb.String()
@@ -1588,9 +1053,9 @@ func (m AppModel) viewLiveScan() string {
 
 	sb.WriteRune('\n')
 	sortNames := []string{"avg", "loss", "jitter", "colo", "speed"}
-	hint := fmt.Sprintf("  s sort(→%s)   c copy IPs   q/esc back", sortNames[m.sortIdx%5])
+	hint := fmt.Sprintf("  s sort: %s   c copy IPs   q/esc cancel", sortNames[m.sortIdx%5])
 	if m.scanDone {
-		hint = fmt.Sprintf("  s sort(→%s)   c copy IPs   enter/q → results", sortNames[m.sortIdx%5])
+		hint = fmt.Sprintf("  s sort: %s   c copy IPs   enter/q view results", sortNames[m.sortIdx%5])
 	}
 	if m.statusMsg != "" {
 		sb.WriteString(styleGood.Render("  "+m.statusMsg) + "\n")
@@ -1653,32 +1118,13 @@ func (m AppModel) viewResults() string {
 	if m.statusMsg != "" {
 		sb.WriteString(styleGood.Render("  "+m.statusMsg) + "\n")
 	}
-	sb.WriteString(styleHint.Render("  s sort   c copy IPs   enter/q → home menu"))
+	sb.WriteString(styleHint.Render("  s sort   c copy IPs   enter/q home menu"))
 	return sb.String()
 }
 
 // ---------------------------------------------------------------------------
 // Live Colos page
 // ---------------------------------------------------------------------------
-
-func (m AppModel) viewLiveColos() string {
-	var sb strings.Builder
-
-	sb.WriteString(styleTitle.Render("\n  🌍  Discovering Cloudflare PoPs\n"))
-	sb.WriteString(fmt.Sprintf("%s\n\n", styleSep.Render("  "+strings.Repeat("─", 56))))
-
-	if !m.colosDone {
-		sb.WriteString(fmt.Sprintf("  %s probing IPs via /cdn-cgi/trace…\n\n", m.spinner.View()))
-	} else {
-		sb.WriteString(styleGood.Render("  ✓ Discovery complete\n\n"))
-	}
-
-	PrintColoTableBuf(&sb, m.colosResults)
-
-	sb.WriteRune('\n')
-	sb.WriteString(styleHint.Render("  q/esc → home menu"))
-	return sb.String()
-}
 
 // ---------------------------------------------------------------------------
 // About page
@@ -1702,118 +1148,13 @@ func (m AppModel) viewAbout() string {
 
 	sb.WriteString(styleDim.Render("  github.com/matinsenpai/senpaiscanner"))
 	sb.WriteString("\n\n")
-	sb.WriteString(styleHint.Render("  enter/q → back"))
+	sb.WriteString(styleHint.Render("  enter/q back"))
 	return sb.String()
 }
 
 // ---------------------------------------------------------------------------
 // Exported helpers for non-TUI callers
 // ---------------------------------------------------------------------------
-
-// PrintTable prints a sorted results table to stdout.
-func PrintTable(results []*result.Result, top int) {
-	sorted := make([]*result.Result, len(results))
-	copy(sorted, results)
-	result.Sort(sorted, result.SortByAvg)
-	if top > 0 && top < len(sorted) {
-		sorted = sorted[:top]
-	}
-
-	hdr := fmt.Sprintf("  %-18s  %7s  %9s  %8s  %9s  %4s  %-5s",
-		"IP", "LOSS", "AVG(ms)", "JTR(ms)", "DL(KB/s)", "TLS", "COLO")
-	fmt.Println(hdr)
-	fmt.Println("  " + strings.Repeat("─", 72))
-	for _, r := range sorted {
-		tls := "✗"
-		if r.TLSOk {
-			tls = "✓"
-		}
-		colo := r.Colo
-		if colo == "" {
-			colo = "—"
-		}
-		fmt.Printf("  %-18s  %6.1f%%  %9.2f  %8.2f  %9.1f  %4s  %-5s\n",
-			r.IP.String(), r.Loss(),
-			float64(r.Avg().Milliseconds()),
-			float64(r.Jitter().Milliseconds()),
-			r.Throughput/1024,
-			tls, colo)
-	}
-	fmt.Println()
-}
-
-// SimpleProgress prints a one-liner progress update.
-func SimpleProgress(tested, healthy, total int64) {
-	if total > 0 {
-		fmt.Printf("\r  tested: %d/%d (%.0f%%)  healthy: %d",
-			tested, total, float64(tested)/float64(total)*100, healthy)
-	} else {
-		fmt.Printf("\r  tested: %d  healthy: %d", tested, healthy)
-	}
-}
-
-// PrintColoTableBuf writes a colo summary into sb.
-func PrintColoTableBuf(sb *strings.Builder, results []*result.Result) {
-	type cs struct {
-		count  int
-		avgSum int64
-		bestMS int64
-		bestIP string
-	}
-	byC := map[string]*cs{}
-	for _, r := range results {
-		if !r.IsHealthy() || r.Colo == "" {
-			continue
-		}
-		s, ok := byC[r.Colo]
-		if !ok {
-			s = &cs{bestMS: r.Avg().Milliseconds(), bestIP: r.IP.String()}
-			byC[r.Colo] = s
-		}
-		s.count++
-		s.avgSum += r.Avg().Milliseconds()
-		if r.Avg().Milliseconds() < s.bestMS {
-			s.bestMS = r.Avg().Milliseconds()
-			s.bestIP = r.IP.String()
-		}
-	}
-	if len(byC) == 0 {
-		sb.WriteString(styleDim.Render("  No colos discovered yet…\n"))
-		return
-	}
-	type row struct {
-		colo   string
-		count  int
-		avgMs  float64
-		bestMs int64
-		bestIP string
-	}
-	var rows []row
-	for colo, s := range byC {
-		rows = append(rows, row{colo, s.count, float64(s.avgSum) / float64(s.count), s.bestMS, s.bestIP})
-	}
-	// sort by bestMs
-	for i := 1; i < len(rows); i++ {
-		for j := i; j > 0 && rows[j].bestMs < rows[j-1].bestMs; j-- {
-			rows[j], rows[j-1] = rows[j-1], rows[j]
-		}
-	}
-	sb.WriteString(styleHeader.Render(fmt.Sprintf("  %-6s  %6s  %9s  %9s  %s\n",
-		"COLO", "COUNT", "AVG(ms)", "BEST(ms)", "BEST IP")))
-	sb.WriteString(styleSep.Render("  " + strings.Repeat("─", 52) + "\n"))
-	for _, r := range rows {
-		line := fmt.Sprintf("  %-6s  %6d  %9.2f  %9d  %s\n",
-			r.colo, r.count, r.avgMs, r.bestMs, r.bestIP)
-		sb.WriteString(styleGood.Render(line))
-	}
-}
-
-// ColoTable prints colo summary to stdout.
-func ColoTable(results []*result.Result) {
-	var sb strings.Builder
-	PrintColoTableBuf(&sb, results)
-	fmt.Print(sb.String())
-}
 
 // ---------------------------------------------------------------------------
 // Command factories (implemented in cmds.go)
@@ -2026,7 +1367,7 @@ func (m AppModel) viewScanWithConfig() string {
 		sb.WriteString(" ")
 		renderMultiPorts()
 		sb.WriteString("\n")
-		sb.WriteString(styleDim.Render("            space toggles a port; selecting multiple ports multiplies work") + "\n\n")
+		sb.WriteString(styleDim.Render("            space toggles a port; enter proceeds to next step") + "\n\n")
 
 		// Row 5: WebSocket
 		rowLabel(5, "  WebSocket")
@@ -2036,9 +1377,22 @@ func (m AppModel) viewScanWithConfig() string {
 			wss = styleBad.Render("OFF")
 		}
 		sb.WriteString(wss + "\n")
-		sb.WriteString(styleDim.Render("            require a successful WebSocket check in Phase 1 (f4/arrows toggle)") + "\n\n")
+		sb.WriteString(styleDim.Render("            require a successful WebSocket check in Phase 1 (left/right toggle)") + "\n\n")
 
-		hint := "  ↑/↓ row   ←/→ option   enter continue   esc back"
+		// Row 6: Next Step
+		sb.WriteString("  ")
+		if m.configSetupRow == 6 {
+			sb.WriteString(styleSelected.Render(" [ Next Step ] ") + "\n\n")
+		} else {
+			sb.WriteString(styleNormal.Render("   [ Next Step ] ") + "\n\n")
+		}
+
+		hint := "  ↑/↓ row   ←/→ option   enter next/confirm   esc back"
+		if m.configSetupRow == 4 {
+			hint = "  ↑/↓ row   ←/→ focus   space toggle port   enter next   esc back"
+		} else if m.configSetupRow == 6 {
+			hint = "  ↑/↓ row   enter next step   esc back"
+		}
 		if m.configCustomMode {
 			hint = "  type value   enter confirm   esc cancel"
 		}
@@ -2091,7 +1445,7 @@ func (m AppModel) viewScanWithConfig() string {
 	if !m.configDone {
 		sb.WriteString(fmt.Sprintf("  %s  xray validating candidates (%d workers)  %s\n\n",
 			styleAccent.Render(scanPulse(m.bannerFrame)),
-			phase2WorkersCount,
+			m.resolvePhase2Workers(),
 			scanWave(m.bannerFrame+5, 32),
 		))
 	}
@@ -2151,13 +1505,18 @@ func (m AppModel) viewScanWithConfig() string {
 		sb.WriteString(styleGood.Render("  "+m.statusMsg) + "\n")
 	}
 	if m.configDone {
-		hint := "  c copy working endpoints   e export Clash/Sing-Box/Sub configs   q/esc back to menu"
+		hint := "  c copy endpoints   e export configs   enter/q home menu"
+		if scanLog != nil && scanLog.HasFailures() {
+			hint += fmt.Sprintf("   l view %s", scanLog.FailureSummary())
+		}
 		if m.liveResultPath != "" {
 			hint += "\n" + styleDim.Render("  live results → "+m.liveResultPath)
 		}
 		sb.WriteString(styleHint.Render(hint) + "\n")
-	} else if m.liveResultPath != "" {
-		sb.WriteString(styleDim.Render("  live results → "+m.liveResultPath) + "\n")
+	} else {
+		if m.liveResultPath != "" {
+			sb.WriteString(styleDim.Render("  live results → "+m.liveResultPath) + "\n")
+		}
 	}
 
 	return sb.String()
@@ -2183,7 +1542,9 @@ func (m AppModel) configFailCount() int {
 	return count
 }
 
-func (m AppModel) handleScanWithConfigKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+// handleScanSetupKey handles keys on the PageScanWithConfig setup screen
+// (Source, Count, Workers, Timeout, Ports, WebSocket rows).
+func (m AppModel) handleScanSetupKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// --- Custom input mode: route all keys to the active text input ---
 	if m.configCustomMode {
 		switch msg.String() {
@@ -2199,6 +1560,9 @@ func (m AppModel) handleScanWithConfigKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			m.configCustomMode = false
 			m.configCustomInput.Blur()
+			if m.configSetupRow < 6 {
+				m.configSetupRow++
+			}
 			return m, nil
 		case "esc":
 			m.configCustomMode = false
@@ -2213,39 +1577,12 @@ func (m AppModel) handleScanWithConfigKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// --- Global keys ---
 	switch msg.String() {
 	case "esc":
-		if m.configScanning || m.configDone {
-			clearLiveResultWriter()
-			m.page = PageHome
-			m.configScanning = false
-			m.configDone = false
-			return m, nil
-		}
 		m.page = PageHome
-		return m, nil
-	case "q":
-		if m.configDone {
-			m.page = PageHome
-			m.configDone = false
-			return m, nil
-		}
-	case "c":
-		if m.configDone {
-			m.statusMsg = m.copyWorkingIPs()
-			return m, nil
-		}
-	case "e":
-		if m.configDone {
-			m.statusMsg = m.exportAllConfigs()
-			return m, nil
-		}
-	}
-
-	if m.configScanning || m.configDone {
 		return m, nil
 	}
 
 	// --- Setup navigation (Source → Count → Workers → Timeout → Ports → WebSocket) ---
-	const maxRow = 5
+	const maxRow = 6
 
 	configNavLeft := func() {
 		switch m.configSetupRow {
@@ -2318,22 +1655,18 @@ func (m AppModel) handleScanWithConfigKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			configNavRight()
 		}
 		return m, nil
-	case "f4":
-		m.scanCfg.RequireWS = !m.scanCfg.RequireWS
-		return m, nil
 	case " ":
 		if m.configSetupRow == 4 {
 			m.toggleFocusedConfigPort()
 			return m, nil
 		}
-		if m.configSetupRow == 5 {
-			m.scanCfg.RequireWS = !m.scanCfg.RequireWS
-			return m, nil
-		}
 	case "enter":
-		if m.configSetupRow == 4 {
-			m.toggleFocusedConfigPort()
-			return m, nil
+		if m.configSetupRow == 6 {
+			m.statusMsg = ""
+			m.page = PageConfigOptional
+			m.configOptionalRow = 0
+			m.configInput.Focus()
+			return m, textinput.Blink
 		}
 		if m.configSetupRow == 1 && configCountValues[m.configCountIdx] == 0 {
 			m.configCustomMode = true
@@ -2359,12 +1692,46 @@ func (m AppModel) handleScanWithConfigKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.configCustomInput.Focus()
 			return m, textinput.Blink
 		}
+		m.configSetupRow++
+		return m, nil
+	}
+	return m, nil
+}
 
-		m.statusMsg = ""
-		m.page = PageConfigOptional
-		m.configOptionalRow = 0
-		m.configInput.Focus()
-		return m, textinput.Blink
+// handlePhase2Key handles keys on the PageConfigPhase2 screen (xray validation
+// scanning in progress or results shown).
+func (m AppModel) handlePhase2Key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		if scanCancel != nil {
+			scanCancel()
+		}
+		clearLiveResultWriter()
+		m.page = PageHome
+		m.configScanning = false
+		m.configDone = false
+		return m, nil
+	case "q", "enter":
+		if m.configDone {
+			m.page = PageHome
+			m.configDone = false
+			return m, nil
+		}
+	case "c":
+		if m.configDone {
+			m.statusMsg = m.copyWorkingIPs()
+			return m, nil
+		}
+	case "e":
+		if m.configDone {
+			m.statusMsg = m.exportAllConfigs()
+			return m, nil
+		}
+	case "l":
+		if m.configDone && scanLog != nil && scanLog.HasFailures() {
+			m.openLogViewer()
+			return m, nil
+		}
 	}
 	return m, nil
 }
@@ -2396,70 +1763,103 @@ func (m AppModel) viewConfigOptional() string {
 	}
 
 	// Row 0: Config URL
-	rowLabel(0, "  Config    ")
+	rowLabel(0, "  Config      ")
 	sb.WriteString(" " + m.configInput.View() + "\n")
-	sb.WriteString(styleDim.Render("            optional — leave empty for Phase 1 only") + "\n\n")
+	sb.WriteString(styleDim.Render("              optional — leave empty for Phase 1 only") + "\n\n")
 
 	// Row 1: Top N
-	rowLabel(1, "  Top N     ")
+	rowLabel(1, "  Top N       ")
 	sb.WriteString(" ")
 	renderPills(configTopNLabels, m.configTopNIdx)
 	sb.WriteString("\n")
 	if m.configCustomMode && m.configCustomRow == 5 {
-		sb.WriteString(styleAccent.Render("            custom top N: ") + m.configCustomInput.View() + "\n\n")
+		sb.WriteString(styleAccent.Render("              custom top N: ") + m.configCustomInput.View() + "\n\n")
 	} else if m.isTopNCustomSelected() && m.configTopNCustom != "" {
-		sb.WriteString(styleDim.Render(fmt.Sprintf("            Phase 2 candidates to validate  (custom: %s)", m.configTopNCustom)) + "\n\n")
+		sb.WriteString(styleDim.Render(fmt.Sprintf("              candidates to validate in Phase 2  (custom: %s)", m.configTopNCustom)) + "\n\n")
 	} else {
-		sb.WriteString(styleDim.Render("            Phase 2 picks — used only when a config URL is entered") + "\n\n")
+		sb.WriteString(styleDim.Render("              candidates to validate in Phase 2") + "\n\n")
 	}
 
-	// Row 2: Min Speed
-	rowLabel(2, "  Min Speed ")
+	// Row 2: P2 Workers
+	rowLabel(2, "  P2 Workers  ")
 	sb.WriteString(" ")
-	renderPills(configMinSpeedLabels, m.configMinSpeedIdx)
+	renderPills(configPhase2WorkersLabels, m.configPhase2WorkersIdx)
+	sb.WriteString("\n")
+	if m.configCustomMode && m.configCustomRow == 9 {
+		sb.WriteString(styleAccent.Render("              custom workers: ") + m.configCustomInput.View() + "\n\n")
+	} else if m.configPhase2WorkersIdx == len(configPhase2WorkersLabels)-1 && m.configPhase2WorkersCustom != "" {
+		sb.WriteString(styleDim.Render(fmt.Sprintf("              concurrent xray validation workers in Phase 2  (custom: %s)", m.configPhase2WorkersCustom)) + "\n\n")
+	} else {
+		sb.WriteString(styleDim.Render("              concurrent xray validation workers in Phase 2") + "\n\n")
+	}
+
+	// Row 3: Min Download
+	rowLabel(3, "  Min Download")
+	sb.WriteString(" ")
+	renderPills(configMinSpeedLabels, m.configMinDownloadIdx)
 	sb.WriteString("\n")
 	if m.configCustomMode && m.configCustomRow == 6 {
-		sb.WriteString(styleAccent.Render("            custom min speed: ") + m.configCustomInput.View() + " Mbps\n\n")
-	} else if m.configMinSpeedIdx == len(configMinSpeedLabels)-1 && m.configMinSpeedCustom != "" {
-		sb.WriteString(styleDim.Render(fmt.Sprintf("            filter healthy IPs below threshold  (custom: %s Mbps)", m.configMinSpeedCustom)) + "\n\n")
+		sb.WriteString(styleAccent.Render("              custom min download: ") + m.configCustomInput.View() + " Mbps\n\n")
+	} else if m.configMinDownloadIdx == len(configMinSpeedLabels)-1 && m.configMinDownloadCustom != "" {
+		sb.WriteString(styleDim.Render(fmt.Sprintf("              minimum download speed limit to filter candidates  (custom: %s Mbps)", m.configMinDownloadCustom)) + "\n\n")
+	} else if m.configMinDownloadIdx == 0 {
+		sb.WriteString(styleDim.Render("              disable download speed testing") + "\n\n")
+	} else if m.configMinDownloadIdx == 1 {
+		sb.WriteString(styleDim.Render("              run download speed test without enforcing a minimum limit") + "\n\n")
 	} else {
-		sb.WriteString(styleDim.Render("            filter healthy IPs below threshold") + "\n\n")
+		sb.WriteString(styleDim.Render("              minimum download speed limit to filter candidates") + "\n\n")
 	}
 
-	// Row 3: Speed URL
-	rowLabel(3, "  Speed URL ")
-	sb.WriteString(" " + m.configSpeedURLInput.View() + "\n")
-	sb.WriteString(styleDim.Render("            optional — leave empty for default speed.cloudflare.com") + "\n\n")
+	// Row 4: Min Upload
+	rowLabel(4, "  Min Upload  ")
+	sb.WriteString(" ")
+	renderPills(configMinUploadLabels, m.configMinUploadIdx)
+	sb.WriteString("\n")
+	if m.configCustomMode && m.configCustomRow == 8 {
+		sb.WriteString(styleAccent.Render("              custom min upload: ") + m.configCustomInput.View() + " Mbps\n\n")
+	} else if m.configMinUploadIdx == len(configMinUploadLabels)-1 && m.configMinUploadCustom != "" {
+		sb.WriteString(styleDim.Render(fmt.Sprintf("              minimum upload speed limit to filter candidates  (custom: %s Mbps)", m.configMinUploadCustom)) + "\n\n")
+	} else if m.configMinUploadIdx == 0 {
+		sb.WriteString(styleDim.Render("              disable upload speed testing") + "\n\n")
+	} else if m.configMinUploadIdx == 1 {
+		sb.WriteString(styleDim.Render("              run upload speed test without enforcing a minimum limit") + "\n\n")
+	} else {
+		sb.WriteString(styleDim.Render("              minimum upload speed limit to filter candidates") + "\n\n")
+	}
 
-	// Row 4: Speed Size
-	rowLabel(4, "  Speed Size")
+	// Row 5: Speed Size
+	rowLabel(5, "  Speed Size  ")
 	sb.WriteString(" ")
 	renderPills(configSpeedSizeLabels, m.configSpeedSizeIdx)
 	sb.WriteString("\n")
 	if m.configCustomMode && m.configCustomRow == 7 {
-		sb.WriteString(styleAccent.Render("            custom speed size: ") + m.configCustomInput.View() + " MB\n\n")
+		sb.WriteString(styleAccent.Render("              custom speed size: ") + m.configCustomInput.View() + " MB\n\n")
 	} else if m.configSpeedSizeIdx == len(configSpeedSizeLabels)-1 && m.configSpeedSizeCustom != "" {
-		sb.WriteString(styleDim.Render(fmt.Sprintf("            download speed sample size  (custom: %s MB)", m.configSpeedSizeCustom)) + "\n\n")
+		sb.WriteString(styleDim.Render(fmt.Sprintf("              speed test sample size for download and upload  (custom: %s MB)", m.configSpeedSizeCustom)) + "\n\n")
 	} else {
-		sb.WriteString(styleDim.Render("            download speed sample size") + "\n\n")
+		sb.WriteString(styleDim.Render("              speed test sample size for download and upload") + "\n\n")
 	}
 
-	// Row 5: Upload Test
-	rowLabel(5, "  Upload    ")
-	sb.WriteString(" ")
-	if m.configUploadTest {
-		sb.WriteString(styleGood.Render("ON"))
-	} else {
-		sb.WriteString(styleBad.Render("OFF"))
-	}
-	sb.WriteString("\n")
-	sb.WriteString(styleDim.Render("            measure upload speed in Phase 2 (space toggle)") + "\n\n")
+	// Row 6: Speed URL
+	rowLabel(6, "  Speed URL   ")
+	sb.WriteString(" " + m.configSpeedURLInput.View() + "\n")
+	sb.WriteString(styleDim.Render("              custom speed test URL (optional — leave empty for default)") + "\n\n")
 
-	hint := "  ↑/↓ row   ←/→ option   enter select/confirm   esc back"
+	// Row 7: Start Scan
+	sb.WriteString("  ")
+	if m.configOptionalRow == 7 {
+		sb.WriteString(styleSelected.Render(" [ Start Scan ] ") + "\n\n")
+	} else {
+		sb.WriteString(styleNormal.Render("   [ Start Scan ] ") + "\n\n")
+	}
+
+	hint := "  ↑/↓ row   ←/→ option   enter next/confirm   esc back"
 	if m.configOptionalRow == 0 {
-		hint = "  paste URL, ctrl+x clear   enter confirm/navigate   ↓ navigate   esc back"
-	} else if m.configOptionalRow == 3 {
-		hint = "  type custom download URL, ctrl+x clear   enter confirm/navigate   esc back"
+		hint = "  paste URL   ctrl+x clear   enter next/confirm   esc back"
+	} else if m.configOptionalRow == 6 {
+		hint = "  type URL   ctrl+x clear   enter next/confirm   esc back"
+	} else if m.configOptionalRow == 7 {
+		hint = "  enter start scan   esc back"
 	}
 	if m.configCustomMode {
 		hint = "  type value   enter confirm   esc cancel"
@@ -2482,12 +1882,23 @@ func (m AppModel) handleConfigOptionalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.configCustomRow == 5 {
 				m.configTopNCustom = val
 			} else if m.configCustomRow == 6 {
-				m.configMinSpeedCustom = val
+				m.configMinDownloadCustom = val
 			} else if m.configCustomRow == 7 {
 				m.configSpeedSizeCustom = val
+			} else if m.configCustomRow == 8 {
+				m.configMinUploadCustom = val
+			} else if m.configCustomRow == 9 {
+				m.configPhase2WorkersCustom = val
 			}
 			m.configCustomMode = false
 			m.configCustomInput.Blur()
+			if m.configOptionalRow < 7 {
+				m.configOptionalRow++
+				if m.configOptionalRow == 6 {
+					m.configSpeedURLInput.Focus()
+					return m, textinput.Blink
+				}
+			}
 			return m, nil
 		case "esc":
 			m.configCustomMode = false
@@ -2499,8 +1910,8 @@ func (m AppModel) handleConfigOptionalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 
-	// --- When a text input is focused (row 0 or row 3) ---
-	if m.configOptionalRow == 0 || m.configOptionalRow == 3 {
+	// --- When a text input is focused (row 0 or row 6) ---
+	if m.configOptionalRow == 0 || m.configOptionalRow == 6 {
 		switch msg.String() {
 		case "esc":
 			m.page = PageScanWithConfig
@@ -2516,19 +1927,16 @@ func (m AppModel) handleConfigOptionalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				if m.configOptionalRow == 0 {
 					m.configInput.Focus()
 					return m, textinput.Blink
-				} else if m.configOptionalRow == 3 {
-					m.configSpeedURLInput.Focus()
-					return m, textinput.Blink
 				}
 			}
 			return m, nil
 
 		case "down":
-			if m.configOptionalRow < 5 {
+			if m.configOptionalRow < 7 {
 				m.configOptionalRow++
 				m.configInput.Blur()
 				m.configSpeedURLInput.Blur()
-				if m.configOptionalRow == 3 {
+				if m.configOptionalRow == 6 {
 					m.configSpeedURLInput.Focus()
 					return m, textinput.Blink
 				}
@@ -2539,14 +1947,16 @@ func (m AppModel) handleConfigOptionalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.configOptionalRow == 0 {
 				rawURL := strings.TrimSpace(m.configInput.Value())
 				if rawURL == "" {
-					return m.launchPhase1FromOptional()
+					m.configOptionalRow = 7
+					m.configInput.Blur()
+					return m, nil
 				}
 				m.configOptionalRow = 1
 				m.configInput.Blur()
 				return m, nil
 			}
-			if m.configOptionalRow == 3 {
-				m.configOptionalRow = 4
+			if m.configOptionalRow == 6 {
+				m.configOptionalRow = 7
 				m.configSpeedURLInput.Blur()
 				return m, nil
 			}
@@ -2555,7 +1965,7 @@ func (m AppModel) handleConfigOptionalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.configOptionalRow == 0 {
 				m.configInput.SetValue("")
 				return m, nil
-			} else if m.configOptionalRow == 3 {
+			} else if m.configOptionalRow == 6 {
 				m.configSpeedURLInput.SetValue("")
 				return m, nil
 			}
@@ -2573,7 +1983,7 @@ func (m AppModel) handleConfigOptionalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// --- When navigation rows (1, 2, 4, 5) are focused ---
+	// --- When navigation rows (1, 2, 3, 4, 5, 7) are focused ---
 	switch msg.String() {
 	case "esc":
 		m.page = PageScanWithConfig
@@ -2589,7 +1999,7 @@ func (m AppModel) handleConfigOptionalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.configOptionalRow == 0 {
 				m.configInput.Focus()
 				return m, textinput.Blink
-			} else if m.configOptionalRow == 3 {
+			} else if m.configOptionalRow == 6 {
 				m.configSpeedURLInput.Focus()
 				return m, textinput.Blink
 			}
@@ -2597,11 +2007,11 @@ func (m AppModel) handleConfigOptionalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "down", "j":
-		if m.configOptionalRow < 5 {
+		if m.configOptionalRow < 7 {
 			m.configOptionalRow++
 			m.configInput.Blur()
 			m.configSpeedURLInput.Blur()
-			if m.configOptionalRow == 3 {
+			if m.configOptionalRow == 6 {
 				m.configSpeedURLInput.Focus()
 				return m, textinput.Blink
 			}
@@ -2615,10 +2025,18 @@ func (m AppModel) handleConfigOptionalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.configTopNIdx--
 			}
 		case 2:
-			if m.configMinSpeedIdx > 0 {
-				m.configMinSpeedIdx--
+			if m.configPhase2WorkersIdx > 0 {
+				m.configPhase2WorkersIdx--
+			}
+		case 3:
+			if m.configMinDownloadIdx > 0 {
+				m.configMinDownloadIdx--
 			}
 		case 4:
+			if m.configMinUploadIdx > 0 {
+				m.configMinUploadIdx--
+			}
+		case 5:
 			if m.configSpeedSizeIdx > 0 {
 				m.configSpeedSizeIdx--
 			}
@@ -2632,19 +2050,21 @@ func (m AppModel) handleConfigOptionalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.configTopNIdx++
 			}
 		case 2:
-			if m.configMinSpeedIdx < len(configMinSpeedLabels)-1 {
-				m.configMinSpeedIdx++
+			if m.configPhase2WorkersIdx < len(configPhase2WorkersLabels)-1 {
+				m.configPhase2WorkersIdx++
+			}
+		case 3:
+			if m.configMinDownloadIdx < len(configMinSpeedLabels)-1 {
+				m.configMinDownloadIdx++
 			}
 		case 4:
+			if m.configMinUploadIdx < len(configMinUploadLabels)-1 {
+				m.configMinUploadIdx++
+			}
+		case 5:
 			if m.configSpeedSizeIdx < len(configSpeedSizeLabels)-1 {
 				m.configSpeedSizeIdx++
 			}
-		}
-		return m, nil
-
-	case " ":
-		if m.configOptionalRow == 5 {
-			m.configUploadTest = !m.configUploadTest
 		}
 		return m, nil
 
@@ -2657,15 +2077,31 @@ func (m AppModel) handleConfigOptionalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.configCustomInput.Focus()
 			return m, textinput.Blink
 		}
-		if m.configOptionalRow == 2 && m.configMinSpeedIdx == len(configMinSpeedLabels)-1 {
+		if m.configOptionalRow == 2 && m.configPhase2WorkersIdx == len(configPhase2WorkersLabels)-1 {
+			m.configCustomMode = true
+			m.configCustomRow = 9
+			m.configCustomInput.SetValue(m.configPhase2WorkersCustom)
+			m.configCustomInput.Placeholder = "e.g. 15"
+			m.configCustomInput.Focus()
+			return m, textinput.Blink
+		}
+		if m.configOptionalRow == 3 && m.configMinDownloadIdx == len(configMinSpeedLabels)-1 {
 			m.configCustomMode = true
 			m.configCustomRow = 6
-			m.configCustomInput.SetValue(m.configMinSpeedCustom)
+			m.configCustomInput.SetValue(m.configMinDownloadCustom)
 			m.configCustomInput.Placeholder = "e.g. 3.5"
 			m.configCustomInput.Focus()
 			return m, textinput.Blink
 		}
-		if m.configOptionalRow == 4 && m.configSpeedSizeIdx == len(configSpeedSizeLabels)-1 {
+		if m.configOptionalRow == 4 && m.configMinUploadIdx == len(configMinUploadLabels)-1 {
+			m.configCustomMode = true
+			m.configCustomRow = 8
+			m.configCustomInput.SetValue(m.configMinUploadCustom)
+			m.configCustomInput.Placeholder = "e.g. 1.5"
+			m.configCustomInput.Focus()
+			return m, textinput.Blink
+		}
+		if m.configOptionalRow == 5 && m.configSpeedSizeIdx == len(configSpeedSizeLabels)-1 {
 			m.configCustomMode = true
 			m.configCustomRow = 7
 			m.configCustomInput.SetValue(m.configSpeedSizeCustom)
@@ -2673,7 +2109,15 @@ func (m AppModel) handleConfigOptionalKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.configCustomInput.Focus()
 			return m, textinput.Blink
 		}
-		return m.launchPhase1FromOptional()
+		if m.configOptionalRow == 7 {
+			return m.launchPhase1FromOptional()
+		}
+		m.configOptionalRow++
+		if m.configOptionalRow == 6 {
+			m.configSpeedURLInput.Focus()
+			return m, textinput.Blink
+		}
+		return m, nil
 	}
 
 	return m, nil
@@ -2733,13 +2177,18 @@ func (m AppModel) launchPhase1FromOptional() (AppModel, tea.Cmd) {
 		ConfigURL:       rawURL,
 		TopNIdx:         m.configTopNIdx,
 		TopNCustom:      m.configTopNCustom,
-		MinSpeedIdx:     m.configMinSpeedIdx,
-		MinSpeedCustom:  m.configMinSpeedCustom,
+		MinDownloadIdx:     m.configMinDownloadIdx,
+		MinDownloadCustom:  m.configMinDownloadCustom,
+		MinUploadIdx:    m.configMinUploadIdx,
+		MinUploadCustom: m.configMinUploadCustom,
 		SpeedURL:        strings.TrimSpace(m.configSpeedURLInput.Value()),
 		SpeedSizeIdx:    m.configSpeedSizeIdx,
 		SpeedSizeCustom: m.configSpeedSizeCustom,
-		UploadTest:      m.configUploadTest,
+		DownloadTest:    m.isDownloadTestEnabled(),
+		UploadTest:      m.isUploadTestEnabled(),
 		RequireWS:       m.scanCfg.RequireWS,
+		Phase2WorkersIdx:    m.configPhase2WorkersIdx,
+		Phase2WorkersCustom: m.configPhase2WorkersCustom,
 	}
 	for port, on := range m.configSelectedPorts {
 		if on {
@@ -2765,63 +2214,34 @@ func (m AppModel) resolveTopN() int {
 	return configTopNValues[m.configTopNIdx]
 }
 
+func (m AppModel) resolvePhase2Workers() int {
+	if m.configPhase2WorkersIdx == len(configPhase2WorkersLabels)-1 {
+		n, _ := strconv.Atoi(strings.TrimSpace(m.configPhase2WorkersCustom))
+		if n <= 0 {
+			return 10
+		}
+		return n
+	}
+	if m.configPhase2WorkersIdx < 0 || m.configPhase2WorkersIdx >= len(configPhase2WorkersValues) {
+		return 10
+	}
+	val := configPhase2WorkersValues[m.configPhase2WorkersIdx]
+	if val <= 0 {
+		return 10
+	}
+	return val
+}
+
 // ConfigDoneMsg signals all config validations are complete.
 type ConfigDoneMsg struct{}
 
-// ConfigBatchResultMsg is no longer used — results come one by one via ConfigProgressMsg.
-type ConfigBatchResultMsg struct {
-	Results []*xraytest.ValidationResult
-}
-
-// ConfigProgressMsg carries a single result during scanning.
+// ---------------------------------------------------------------------------
+// Config Phase 1 — fast connectivity scan
+// ---------------------------------------------------------------------------
 type ConfigProgressMsg struct {
 	Result *xraytest.ValidationResult
 	Done   int
 	Total  int
-}
-
-func (m AppModel) startConfigScan(rawURL string) tea.Cmd {
-	return func() tea.Msg {
-		go runConfigScan(rawURL)
-		return nil
-	}
-}
-
-func runConfigScan(rawURL string) {
-	cfg, err := xraytest.ParseProxyURL(rawURL)
-	if err != nil {
-		if prog != nil {
-			prog.Send(ConfigDoneMsg{})
-		}
-		return
-	}
-
-	// Top CF IPs to test
-	testIPs := []string{
-		"104.18.5.1", "104.17.0.1", "172.66.40.1",
-		"172.67.186.127", "104.21.19.146", "104.16.0.1",
-		"104.19.229.21", "104.18.10.1", "104.17.100.1",
-		"104.16.200.1",
-	}
-
-	ctx := context.Background()
-	total := len(testIPs)
-
-	for i, ip := range testIPs {
-		swapped := cfg.WithAddress(ip)
-		r := xraytest.ValidateConfig(ctx, swapped, 30*time.Second)
-		if prog != nil {
-			prog.Send(ConfigProgressMsg{
-				Result: r,
-				Done:   i + 1,
-				Total:  total,
-			})
-		}
-	}
-
-	if prog != nil {
-		prog.Send(ConfigDoneMsg{})
-	}
 }
 
 // ---------------------------------------------------------------------------
@@ -2832,6 +2252,8 @@ var configCountValues = []int{1000, 5000, 20000, 0} // 0 = custom
 var configCountLabels = []string{"1,000", "5,000", "20,000", "Custom"}
 var configTopNValues = []int{10, 25, 50, 100, 0} // 0 = all
 var configTopNLabels = []string{"10", "25", "50", "100", "All", "Custom"}
+var configPhase2WorkersValues = []int{5, 10, 20, 50, 0}
+var configPhase2WorkersLabels = []string{"5", "10", "20", "50", "Custom"}
 var configIPModeLabels = []string{"Random", "From File"}
 var configPortChoices = []struct {
 	label string
@@ -2846,13 +2268,6 @@ var configPortChoices = []struct {
 	{"2096", 2096},
 }
 
-func configPortLabels() []string {
-	labels := make([]string, len(configPortChoices))
-	for i, p := range configPortChoices {
-		labels[i] = p.label
-	}
-	return labels
-}
 
 // quickWorkersLabels and quickTimeoutLabels return the display labels for the
 // shared quick-scan preset slices so viewScanWithConfig can use them.
@@ -2873,106 +2288,6 @@ func quickTimeoutLabels() []string {
 }
 
 // ---------------------------------------------------------------------------
-// Config Setup page
-// ---------------------------------------------------------------------------
-
-func (m AppModel) viewConfigSetup() string {
-	var sb strings.Builder
-
-	sb.WriteString(styleTitle.Render("\n  ⚡  Scan with Config — Setup\n"))
-	sb.WriteString(fmt.Sprintf("%s\n\n", styleSep.Render("  "+strings.Repeat("─", minInt(m.width-4, 70)))))
-
-	sb.WriteString(styleNormal.Render("  Phase 1: Fast connectivity scan to find reachable IPs") + "\n")
-	sb.WriteString(styleNormal.Render("  Phase 2: Test top IPs with your actual xray config") + "\n\n")
-
-	// Count row
-	countLabel := "  Count   "
-	for i, label := range configCountLabels {
-		if i == m.configCountIdx && m.configSetupRow == 0 {
-			sb.WriteString(styleSelected.Render(" " + label + " "))
-		} else {
-			sb.WriteString(styleNormal.Render("  " + label + "  "))
-		}
-		if i < len(configCountLabels)-1 {
-			sb.WriteString(styleDim.Render("│"))
-		}
-	}
-	sb.WriteString("\n")
-	if m.configSetupRow == 0 {
-		sb.WriteString(styleAccent.Render(countLabel) + styleDim.Render("IPs to probe in Phase 1") + "\n\n")
-	} else {
-		sb.WriteString(styleDim.Render(countLabel+"IPs to probe in Phase 1") + "\n\n")
-	}
-
-	// Top N row
-	topLabel := "  Top N   "
-	for i, label := range configTopNLabels {
-		if i == m.configTopNIdx && m.configSetupRow == 1 {
-			sb.WriteString(styleSelected.Render(" " + label + " "))
-		} else {
-			sb.WriteString(styleNormal.Render("  " + label + "  "))
-		}
-		if i < len(configTopNLabels)-1 {
-			sb.WriteString(styleDim.Render("│"))
-		}
-	}
-	sb.WriteString("\n")
-	if m.configSetupRow == 1 {
-		sb.WriteString(styleAccent.Render(topLabel) + styleDim.Render("best IPs to validate with xray") + "\n\n")
-	} else {
-		sb.WriteString(styleDim.Render(topLabel+"best IPs to validate with xray") + "\n\n")
-	}
-
-	sb.WriteString(styleHint.Render("  ↑/↓ row   ←/→ option   enter start   esc back") + "\n")
-
-	return sb.String()
-}
-
-func (m AppModel) handleConfigSetupKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "esc":
-		m.page = PageScanWithConfig
-		return m, nil
-	case "up", "k":
-		if m.configSetupRow > 0 {
-			m.configSetupRow--
-		}
-	case "down", "j":
-		if m.configSetupRow < 1 {
-			m.configSetupRow++
-		}
-	case "left", "h":
-		if m.configSetupRow == 0 && m.configCountIdx > 0 {
-			m.configCountIdx--
-		} else if m.configSetupRow == 1 && m.configTopNIdx > 0 {
-			m.configTopNIdx--
-		}
-	case "right", "l":
-		if m.configSetupRow == 0 && m.configCountIdx < len(configCountLabels)-1 {
-			m.configCountIdx++
-		} else if m.configSetupRow == 1 && m.configTopNIdx < len(configTopNLabels)-1 {
-			m.configTopNIdx++
-		}
-	case "enter":
-		// Start Phase 1
-		m.page = PageConfigPhase1
-		m.configPhase1Results = nil
-		m.configPhase1Done = false
-		m.configPhase1Stats = StatsMsg{}
-		count := configCountValues[m.configCountIdx]
-		if count == 0 {
-			count, _ = strconv.Atoi(m.configCountCustom)
-			if count <= 0 {
-				count = 1000
-			}
-		}
-		m.configPhase1Total = count
-		return m, m.startConfigPhase1()
-	}
-	return m, nil
-}
-
-// ---------------------------------------------------------------------------
 // Config Phase 1 — fast connectivity scan
 // ---------------------------------------------------------------------------
 
@@ -2982,8 +2297,6 @@ type ConfigPhase1ResultMsg struct {
 
 // ConfigPhase1ErrMsg is sent when Phase 1 cannot proceed (e.g. ips.txt missing).
 type ConfigPhase1ErrMsg struct{ Err string }
-
-type ConfigPhase1StatsMsg = StatsMsg
 
 type ConfigPhase1DoneMsg struct{}
 
@@ -3079,7 +2392,17 @@ func (m AppModel) viewConfigPhase1() string {
 	}
 
 	if m.configPhase1Done && m.configPhase1Only {
-		sb.WriteString(styleHint.Render("  c copy healthy endpoints   q/esc back") + "\n")
+		hint := "  c/enter copy endpoints   q/esc back"
+		if scanLog != nil && scanLog.HasFailures() {
+			hint += fmt.Sprintf("   l view %s", scanLog.FailureSummary())
+		}
+		sb.WriteString(styleHint.Render(hint) + "\n")
+	} else if m.configPhase1Done && !m.configPhase1Only {
+		hint := "  enter start Phase 2   q/esc cancel"
+		if scanLog != nil && scanLog.HasFailures() {
+			hint += fmt.Sprintf("   l view %s", scanLog.FailureSummary())
+		}
+		sb.WriteString(styleHint.Render(hint) + "\n")
 	} else {
 		sb.WriteString(styleHint.Render("  q/esc cancel") + "\n")
 	}
@@ -3088,9 +2411,41 @@ func (m AppModel) viewConfigPhase1() string {
 
 func (m AppModel) handleConfigPhase1Key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
+	case "enter":
+		if m.configPhase1Done && m.configPhase1Only {
+			m.statusMsg = m.copyPhase1HealthyEndpoints()
+			return m, nil
+		}
+		if m.configPhase1Done && !m.configPhase1Only && len(m.configPhase1Results) > 0 {
+			// Manually start Phase 2 from Phase 1 results
+			topN := m.resolveTopN()
+			var topIPs []*result.Result
+			if topN == 0 {
+				topIPs = result.TopN(m.configPhase1Results, 0)
+			} else {
+				topIPs = result.TopN(m.configPhase1Results, topN)
+			}
+			if len(topIPs) == 0 {
+				m.statusMsg = "no healthy candidates to validate"
+				return m, nil
+			}
+			if liveResultWriter != nil {
+				liveResultWriter.BeginPhase2()
+			}
+			m.page = PageConfigPhase2
+			m.configScanning = true
+			m.configDone = false
+			m.configResults = nil
+			return m, m.startConfigPhase2(topIPs)
+		}
 	case "c":
 		if m.configPhase1Done && m.configPhase1Only {
 			m.statusMsg = m.copyPhase1HealthyEndpoints()
+			return m, nil
+		}
+	case "l":
+		if m.configPhase1Done && scanLog != nil && scanLog.HasFailures() {
+			m.openLogViewer()
 			return m, nil
 		}
 	case "esc", "q":
@@ -3113,7 +2468,7 @@ func (m AppModel) copyPhase1HealthyEndpoints() string {
 	for _, r := range top {
 		endpoints = append(endpoints, formatEndpoint(r.IP.String(), r.Port))
 	}
-	return copyAndSaveIPs(endpoints)
+	return copyAndSaveIPs(endpoints, m.ispInfo)
 }
 
 // configPhase1Options holds the resolved settings for a Phase 1 engine run.
@@ -3232,16 +2587,20 @@ func (m AppModel) resolveConfigPorts() []int {
 func (m AppModel) startConfigPhase2(topIPs []*result.Result) tea.Cmd {
 	url := m.configURL
 	minSpeed := m.resolveMinSpeed()
+	minUploadSpeed := m.resolveMinUploadSpeed()
 	speedURL := strings.TrimSpace(m.configSpeedURLInput.Value())
 	speedSize := m.resolveSpeedSize()
 	timeout := m.resolveTimeout()
-	uploadTest := m.configUploadTest
+	uploadTest := m.isUploadTestEnabled()
+
+	downloadTest := m.isDownloadTestEnabled()
+	workers := m.resolvePhase2Workers()
 
 	// Xray validation has startup and SOCKS proxy overheads.
-	// We enforce a minimum floor of 10s and scale with the user timeout.
+	// We enforce a minimum floor of 20s and scale with the user timeout.
 	xrayTimeout := timeout * 2
-	if xrayTimeout < 10*time.Second {
-		xrayTimeout = 10 * time.Second
+	if xrayTimeout < 20*time.Second {
+		xrayTimeout = 20 * time.Second
 	}
 
 	// Add dynamic budget for speed testing if a speed check is requested/configured.
@@ -3262,17 +2621,20 @@ func (m AppModel) startConfigPhase2(topIPs []*result.Result) tea.Cmd {
 	if speedLimit > 30*time.Second {
 		speedLimit = 30 * time.Second
 	}
-	xrayTimeout += speedLimit
+	if downloadTest {
+		xrayTimeout += speedLimit
+	}
 
 	return func() tea.Msg {
-		go runConfigPhase2(url, topIPs, minSpeed, speedURL, speedSize, xrayTimeout, uploadTest)
+		go runConfigPhase2(url, topIPs, minSpeed, minUploadSpeed, speedURL, speedSize, xrayTimeout, downloadTest, uploadTest, workers)
 		return nil
 	}
 }
 
-func runConfigPhase2(rawURL string, topIPs []*result.Result, minSpeed float64, speedURL string, speedSize int64, timeout time.Duration, uploadTest bool) {
+func runConfigPhase2(rawURL string, topIPs []*result.Result, minSpeed float64, minUploadSpeed float64, speedURL string, speedSize int64, timeout time.Duration, downloadTest bool, uploadTest bool, workers int) {
 	cfg, err := xraytest.ParseProxyURL(rawURL)
 	if err != nil {
+		scanLog.Error(logger.Phase2, "invalid URL: %v", err)
 		if prog != nil {
 			prog.Send(ConfigDoneMsg{})
 		}
@@ -3282,6 +2644,7 @@ func runConfigPhase2(rawURL string, topIPs []*result.Result, minSpeed float64, s
 	ctx := context.Background()
 	total := len(topIPs)
 	if total == 0 {
+		scanLog.Info(logger.Phase2, "no candidates to validate")
 		if prog != nil {
 			prog.Send(ConfigDoneMsg{})
 		}
@@ -3289,6 +2652,7 @@ func runConfigPhase2(rawURL string, topIPs []*result.Result, minSpeed float64, s
 	}
 
 	if errMsg := cfg.Phase2SanityError(); errMsg != "" {
+		scanLog.Error(logger.Phase2, "config sanity check failed: %s", errMsg)
 		for i, r := range topIPs {
 			vr := &xraytest.ValidationResult{
 				IP:        r.IP.String(),
@@ -3309,9 +2673,15 @@ func runConfigPhase2(rawURL string, topIPs []*result.Result, minSpeed float64, s
 		return
 	}
 
-	sem := make(chan struct{}, phase2WorkersCount)
+	scanLog.ScanStart(logger.Phase2, map[string]any{
+		"candidates": total, "timeout": timeout, "minSpeed": minSpeed,
+		"network": cfg.Network, "workers": workers,
+	})
+
+	sem := make(chan struct{}, workers)
 	var wg sync.WaitGroup
 	var done atomic.Int32
+	var working int32
 
 	for _, r := range topIPs {
 		r := r
@@ -3324,14 +2694,28 @@ func runConfigPhase2(rawURL string, topIPs []*result.Result, minSpeed float64, s
 			swapped := cfg.WithEndpoint(r.IP.String(), r.Port)
 			swapped.SpeedURL = speedURL
 			swapped.SpeedSize = speedSize
+			swapped.DownloadTest = downloadTest
 			swapped.UploadTest = uploadTest
 			vr := xraytest.ValidateConfig(ctx, swapped, timeout)
-			if vr.Success && minSpeed > 0 {
+			if vr.Success && minSpeed > 0 && downloadTest {
 				mbps := vr.Throughput * 8 / 1_000_000
 				if mbps < minSpeed {
 					vr.Success = false
 					vr.Error = fmt.Sprintf("speed below threshold (%.1f < %.1f Mbps)", mbps, minSpeed)
 				}
+			}
+			if vr.Success && minUploadSpeed > 0 && uploadTest {
+				upMbps := vr.UploadThroughput * 8 / 1_000_000
+				if upMbps < minUploadSpeed {
+					vr.Success = false
+					vr.Error = fmt.Sprintf("upload speed below threshold (%.1f < %.1f Mbps)", upMbps, minUploadSpeed)
+				}
+			}
+			if vr.Success {
+				working++
+				scanLog.ProbeSuccess(logger.Phase2, formatEndpoint(vr.IP, vr.Port), float64(vr.Latency.Milliseconds()))
+			} else {
+				scanLog.ProbeFailure(logger.Phase2, formatEndpoint(vr.IP, vr.Port), vr.Error)
 			}
 			if liveResultWriter != nil {
 				liveResultWriter.AddPhase2(vr)
@@ -3348,6 +2732,7 @@ func runConfigPhase2(rawURL string, topIPs []*result.Result, minSpeed float64, s
 
 	wg.Wait()
 
+	scanLog.ScanComplete(logger.Phase2, total, int(working), 0)
 	if prog != nil {
 		prog.Send(ConfigDoneMsg{})
 	}
@@ -3357,24 +2742,55 @@ func runConfigPhase2(rawURL string, topIPs []*result.Result, minSpeed float64, s
 // Config Resolvers and Exporters
 // ---------------------------------------------------------------------------
 
-var configMinSpeedValues = []float64{0.0, 1.0, 2.0, 5.0, -1.0} // -1.0 = custom
-var configMinSpeedLabels = []string{"None", "1 Mbps", "2 Mbps", "5 Mbps", "Custom"}
+var configMinSpeedValues = []float64{-1.0, 0.0, 1.0, 2.0, 5.0, -2.0} // -1.0 = OFF, 0.0 = No Limit, -2.0 = Custom
+var configMinSpeedLabels = []string{"OFF", "No Limit", "1 Mbps", "2 Mbps", "5 Mbps", "Custom"}
+
+func (m AppModel) isDownloadTestEnabled() bool {
+	return m.configMinDownloadIdx != 0
+}
+
+var configMinUploadValues = []float64{-1.0, 0.0, 0.5, 1.0, 2.0, -2.0} // -1.0 = OFF, 0.0 = No Limit, -2.0 = Custom
+var configMinUploadLabels = []string{"OFF", "No Limit", "0.5 Mbps", "1.0 Mbps", "2.0 Mbps", "Custom"}
+
+func (m AppModel) isUploadTestEnabled() bool {
+	return m.configMinUploadIdx != 0
+}
+
+func (m AppModel) resolveMinUploadSpeed() float64 {
+	if m.configMinUploadIdx == len(configMinUploadLabels)-1 {
+		val, _ := strconv.ParseFloat(strings.TrimSpace(m.configMinUploadCustom), 64)
+		if val <= 0 {
+			return 0
+		}
+		return val
+	}
+	if m.configMinUploadIdx <= 1 {
+		return 0
+	}
+	if m.configMinUploadIdx < 0 || m.configMinUploadIdx >= len(configMinUploadValues) {
+		return 0
+	}
+	return configMinUploadValues[m.configMinUploadIdx]
+}
 
 var configSpeedSizeValues = []int64{128 * 1024, 512 * 1024, 1024 * 1024, 5 * 1024 * 1024, 0} // 0 = custom
 var configSpeedSizeLabels = []string{"128 KB", "512 KB (default)", "1 MB", "5 MB", "Custom"}
 
 func (m AppModel) resolveMinSpeed() float64 {
-	if m.configMinSpeedIdx == len(configMinSpeedLabels)-1 {
-		n, _ := strconv.ParseFloat(strings.TrimSpace(m.configMinSpeedCustom), 64)
+	if m.configMinDownloadIdx == len(configMinSpeedLabels)-1 {
+		n, _ := strconv.ParseFloat(strings.TrimSpace(m.configMinDownloadCustom), 64)
 		if n <= 0 {
 			return 0
 		}
 		return n
 	}
-	if m.configMinSpeedIdx < 0 || m.configMinSpeedIdx >= len(configMinSpeedValues) {
+	if m.configMinDownloadIdx <= 1 {
 		return 0
 	}
-	return configMinSpeedValues[m.configMinSpeedIdx]
+	if m.configMinDownloadIdx < 0 || m.configMinDownloadIdx >= len(configMinSpeedValues) {
+		return 0
+	}
+	return configMinSpeedValues[m.configMinDownloadIdx]
 }
 
 func (m AppModel) resolveSpeedSize() int64 {
@@ -3402,7 +2818,7 @@ func (m AppModel) exportAllConfigs() string {
 		return fmt.Sprintf("invalid config URL: %v", err)
 	}
 
-	exe, err := os.Executable()
+	exe, err := osExecutable()
 	dir := ""
 	if err == nil {
 		dir = filepath.Dir(exe)
@@ -3416,13 +2832,27 @@ func (m AppModel) exportAllConfigs() string {
 
 	// 1. Export Subscription URLs
 	var subUrls []string
-	for _, ep := range endpoints {
+	for i, ep := range endpoints {
 		parts := strings.Split(ep, ":")
 		port := cfg.Port
 		if len(parts) > 1 {
 			port, _ = strconv.Atoi(parts[1])
 		}
 		swapped := cfg.WithEndpoint(parts[0], port)
+		
+		// Suffix sub link remark with endpoint number and user ISP if known
+		var remarkSuffix string
+		if m.ispInfo != "" {
+			remarkSuffix = fmt.Sprintf("CF-Endpoint-%d-%s", i+1, m.ispInfo)
+		} else {
+			remarkSuffix = fmt.Sprintf("CF-Endpoint-%d", i+1)
+		}
+		if cfg.Remark != "" {
+			swapped.Remark = cfg.Remark + "-" + remarkSuffix
+		} else {
+			swapped.Remark = remarkSuffix
+		}
+		
 		subUrls = append(subUrls, swapped.ToShareURL())
 	}
 	subPath := filepath.Join(dir, "senpaiscanner-sub.txt")
@@ -3449,6 +2879,9 @@ func (m AppModel) exportAllConfigs() string {
 			port, _ = strconv.Atoi(parts[1])
 		}
 		tag := fmt.Sprintf("CF-Endpoint-%d", i+1)
+		if m.ispInfo != "" {
+			tag = fmt.Sprintf("CF-Endpoint-%d-%s", i+1, m.ispInfo)
+		}
 
 		o := SBOutbound{
 			Type:       cfg.Protocol,
@@ -3523,6 +2956,9 @@ func (m AppModel) exportAllConfigs() string {
 			port, _ = strconv.Atoi(parts[1])
 		}
 		name := fmt.Sprintf("CF-Endpoint-%d", i+1)
+		if m.ispInfo != "" {
+			name = fmt.Sprintf("CF-Endpoint-%d-%s", i+1, m.ispInfo)
+		}
 
 		clashLines = append(clashLines, fmt.Sprintf("  - name: \"%s\"", name))
 		clashLines = append(clashLines, fmt.Sprintf("    type: %s", cfg.Protocol))
@@ -3568,4 +3004,90 @@ func (m AppModel) exportAllConfigs() string {
 	_ = os.WriteFile(clashPath, []byte(strings.Join(clashLines, "\n")+"\n"), 0644)
 
 	return fmt.Sprintf("✓ configs exported to Clash, Sing-Box, and Sub files in %s", dir)
+}
+
+// ---------------------------------------------------------------------------
+// Log Viewer
+// ---------------------------------------------------------------------------
+
+func (m AppModel) viewLogViewer() string {
+	var sb strings.Builder
+
+	sb.WriteString(styleTitle.Render("\n  📋  Scan Log\n"))
+	sb.WriteString(fmt.Sprintf("%s\n\n", styleSep.Render("  "+strings.Repeat("─", minInt(m.width-4, 70)))))
+
+	if len(m.logViewerLines) == 0 {
+		sb.WriteString(styleDim.Render("  No log entries found.\n\n"))
+	} else {
+		maxRows := m.height - 8
+		if maxRows < 5 {
+			maxRows = 5
+		}
+		lines := m.logViewerLines
+		if len(lines) > maxRows {
+			lines = lines[len(lines)-maxRows:]
+		}
+		for _, line := range lines {
+			lineStyle := styleNormal
+			switch {
+			case strings.Contains(line, "[ERROR]"):
+				lineStyle = styleBad
+			case strings.Contains(line, "[WARN ]"):
+				lineStyle = styleWarn
+			case strings.Contains(line, "[INFO ]"):
+				lineStyle = styleNormal
+			case strings.Contains(line, "[DEBUG]"):
+				lineStyle = styleDim
+			}
+			sb.WriteString(lineStyle.Render("  " + line) + "\n")
+		}
+	}
+
+	sb.WriteRune('\n')
+	sb.WriteString(styleHint.Render("  c copy logs   q/esc back"))
+	sb.WriteRune('\n')
+	if m.statusMsg != "" {
+		sb.WriteString(styleGood.Render("  " + m.statusMsg) + "\n")
+	}
+	return sb.String()
+}
+
+func (m AppModel) handleLogViewerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "c":
+		if len(m.logViewerLines) > 0 {
+			_ = clipboard.WriteAll(strings.Join(m.logViewerLines, "\n"))
+			m.statusMsg = "✓ logs copied to clipboard"
+		} else {
+			m.statusMsg = "no logs to copy"
+		}
+		return m, nil
+	case "q", "esc", "enter":
+		m.statusMsg = ""
+		m.page = PageConfigPhase1
+		if m.configPhase1Done {
+			if m.configPhase1Only {
+				m.page = PageConfigPhase1
+			} else {
+				m.page = PageConfigPhase2
+			}
+		}
+		return m, nil
+	case "ctrl+c":
+		return m, tea.Quit
+	}
+	return m, nil
+}
+
+func (m *AppModel) openLogViewer() {
+	if scanLog == nil {
+		return
+	}
+	dir := scanLog.LogDir()
+	if dir == "" {
+		return
+	}
+	m.statusMsg = ""
+	m.logViewerLines = logger.GetRecentLogLines(dir, 200)
+	m.page = PageLogViewer
 }

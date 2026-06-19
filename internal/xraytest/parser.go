@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/url"
 	"strconv"
 	"strings"
@@ -22,6 +23,9 @@ type VLESSConfig struct {
 
 	// Trojan-specific
 	Password string
+
+	// Shadowsocks-specific
+	Method string // cipher, e.g. "aes-256-gcm"
 
 	// Common
 	Address string
@@ -49,6 +53,9 @@ type VLESSConfig struct {
 	SpeedURL  string
 	SpeedSize int64
 
+	// Download test flag — when true, Phase 2 measures download throughput.
+	DownloadTest bool
+
 	// Upload test flag — when true, Phase 2 measures upload throughput.
 	UploadTest bool
 }
@@ -58,16 +65,27 @@ type VLESSConfig struct {
 func ParseProxyURL(raw string) (*VLESSConfig, error) {
 	raw = strings.TrimSpace(raw)
 	lower := strings.ToLower(raw)
+	var cfg *VLESSConfig
+	var err error
 	switch {
 	case strings.HasPrefix(lower, "vless://"):
-		return ParseVLESS(raw)
+		cfg, err = ParseVLESS(raw)
 	case strings.HasPrefix(lower, "trojan://"):
-		return ParseTrojan(raw)
+		cfg, err = ParseTrojan(raw)
 	case strings.HasPrefix(lower, "vmess://"):
-		return ParseVMess(raw)
+		cfg, err = ParseVMess(raw)
+	case strings.HasPrefix(lower, "ss://"):
+		cfg, err = ParseShadowsocks(raw)
 	default:
-		return nil, fmt.Errorf("unsupported URL scheme — must start with vless://, trojan://, or vmess://")
+		return nil, fmt.Errorf("unsupported URL scheme — must start with vless://, trojan://, vmess://, or ss://")
 	}
+	if err != nil {
+		return nil, err
+	}
+	if cfg != nil && cfg.Insecure {
+		return nil, fmt.Errorf("allowInsecure/insecure is set to true (unsupported in latest xray-core)")
+	}
+	return cfg, nil
 }
 
 // ParseVMess parses a vmess:// share URL (base64-encoded JSON) into a VLESSConfig.
@@ -373,6 +391,10 @@ func (c *VLESSConfig) ToShareURL() string {
 	if c.Protocol == "trojan" {
 		return fmt.Sprintf("trojan://%s@%s:%d?%s#%s", c.Password, c.Address, c.Port, params.Encode(), remark)
 	}
+	if c.Protocol == "shadowsocks" {
+		encoded := base64.RawURLEncoding.EncodeToString([]byte(c.Method + ":" + c.Password))
+		return fmt.Sprintf("ss://%s@%s:%d#%s", encoded, c.Address, c.Port, remark)
+	}
 	return fmt.Sprintf("vless://%s@%s:%d?%s#%s", c.UUID, c.Address, c.Port, params.Encode(), remark)
 }
 
@@ -524,6 +546,9 @@ func (c *VLESSConfig) Phase2SanityError() string {
 	if c == nil {
 		return "empty config"
 	}
+	if c.Insecure {
+		return "allowInsecure/insecure is set to true (unsupported in latest xray-core)"
+	}
 	switch c.Network {
 	case "ws", "xhttp", "splithttp":
 		if c.Host == "" && c.SNI == "" {
@@ -624,4 +649,93 @@ func ParseTrojan(raw string) (*VLESSConfig, error) {
 	}
 
 	return cfg, nil
+}
+
+// ParseShadowsocks parses an ss:// share URL into a VLESSConfig.
+// Supported formats:
+//
+//	ss://base64(method:password)@host:port#remark
+//	ss://method:password@host:port#remark
+func ParseShadowsocks(raw string) (*VLESSConfig, error) {
+	if !hasScheme(raw, "ss") {
+		return nil, fmt.Errorf("not an ss:// URL")
+	}
+
+	raw = stripScheme(raw, "ss")
+
+	// Split remark
+	remark := ""
+	if idx := strings.LastIndex(raw, "#"); idx >= 0 {
+		remark = raw[idx+1:]
+		remark, _ = url.QueryUnescape(remark)
+		raw = raw[:idx]
+	}
+
+	// Extract userinfo@host:port
+	atIdx := strings.LastIndex(raw, "@")
+	if atIdx < 0 {
+		return nil, fmt.Errorf("ss:// URL missing @ separator")
+	}
+	userinfo := raw[:atIdx]
+	hostPort := raw[atIdx+1:]
+
+	// Decode userinfo — may be base64(method:password) or plaintext method:password
+	method, password, err := decodeSSUserinfo(userinfo)
+	if err != nil {
+		return nil, fmt.Errorf("decoding ss:// userinfo: %w", err)
+	}
+
+	// Parse host:port
+	host, portStr, err := net.SplitHostPort(hostPort)
+	if err != nil {
+		return nil, fmt.Errorf("parsing ss:// host:port: %w", err)
+	}
+	port, _ := strconv.Atoi(portStr)
+	if port <= 0 {
+		return nil, fmt.Errorf("ss:// invalid port %q", portStr)
+	}
+
+	return &VLESSConfig{
+		Protocol: "shadowsocks",
+		Method:   method,
+		Password: password,
+		Address:  host,
+		Port:     port,
+		Remark:   remark,
+	}, nil
+}
+
+// decodeSSUserinfo decodes the userinfo part of an ss:// URL.
+// It first tries base64 decoding (standard format), then falls back to
+// plaintext method:password.
+func decodeSSUserinfo(raw string) (method, password string, err error) {
+	// Try base64 decode first (standard Shadowsocks format).
+	// Try multiple base64 variants to handle various padding styles.
+	candidates := []string{raw, strings.TrimRight(raw, "=")}
+	for _, c := range candidates {
+		if decoded, decErr := base64.StdEncoding.DecodeString(c); decErr == nil {
+			raw = string(decoded)
+			goto decoded
+		}
+		if decoded, decErr := base64.RawStdEncoding.DecodeString(c); decErr == nil {
+			raw = string(decoded)
+			goto decoded
+		}
+		if decoded, decErr := base64.URLEncoding.DecodeString(c); decErr == nil {
+			raw = string(decoded)
+			goto decoded
+		}
+		if decoded, decErr := base64.RawURLEncoding.DecodeString(c); decErr == nil {
+			raw = string(decoded)
+			goto decoded
+		}
+	}
+	// else: treat as plaintext method:password
+
+decoded:
+	parts := strings.SplitN(raw, ":", 2)
+	if len(parts) != 2 {
+		return "", "", fmt.Errorf("expected method:password, got %q", raw)
+	}
+	return parts[0], parts[1], nil
 }

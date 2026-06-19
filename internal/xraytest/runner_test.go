@@ -69,6 +69,7 @@ func TestProxyConnectivityCheckFallsBackToSecondTraceTarget(t *testing.T) {
 	defer failedTarget.Close()
 
 	workingTarget := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(2 * time.Millisecond)
 		_, _ = fmt.Fprintln(w, "colo=SJC")
 	}))
 	defer workingTarget.Close()
@@ -113,6 +114,7 @@ func TestProxyConnectivityCheckReportsTraceTargetFailures(t *testing.T) {
 
 func TestProxyConnectivityCheckTargetAccepts2xx(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(2 * time.Millisecond)
 		_, _ = w.Write([]byte("colo=TEST\n"))
 	}))
 	defer srv.Close()

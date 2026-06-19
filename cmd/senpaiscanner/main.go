@@ -6,6 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/matinsenpai/senpaiscanner/internal/logger"
 	"github.com/matinsenpai/senpaiscanner/internal/ui"
 	"github.com/matinsenpai/senpaiscanner/pkg/version"
 )
@@ -16,6 +17,13 @@ func main() {
 		fmt.Println("SenPai Scanner", version.String())
 		return
 	}
+
+	// Initialize the scan logger. Logs are written to
+	// %APPDATA%/senpaiscanner/logs/scan-YYYYMMDD-HHMMSS.log (Windows) or
+	// ~/.config/senpaiscanner/logs/... (Linux/macOS).
+	scanLog := logger.New(logger.Config{MinLevel: logger.LevelDebug})
+	defer scanLog.Close()
+	ui.SetLogger(scanLog)
 
 	model := ui.NewApp(version.Version)
 
@@ -29,6 +37,7 @@ func main() {
 	ui.SetProgram(p)
 
 	if _, err := p.Run(); err != nil {
+		scanLog.Error(logger.PhaseStartup, "TUI exited with error: %v", err)
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}

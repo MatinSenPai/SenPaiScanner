@@ -174,11 +174,13 @@ func validateOnce(ctx context.Context, cfg *VLESSConfig, timeout time.Duration) 
 	}
 
 	// Step 2: best-effort download speed (does not affect Success).
-	speedCtx, speedCancel := context.WithTimeout(ctx, speedBudget(timeout, latency))
-	defer speedCancel()
-	bytesRecv, throughput := measureProxySpeed(speedCtx, proxyURL, cfg)
-	res.BytesRecv = bytesRecv
-	res.Throughput = throughput
+	if cfg.DownloadTest {
+		speedCtx, speedCancel := context.WithTimeout(ctx, speedBudget(timeout, latency))
+		defer speedCancel()
+		bytesRecv, throughput := measureProxySpeed(speedCtx, proxyURL, cfg)
+		res.BytesRecv = bytesRecv
+		res.Throughput = throughput
+	}
 	res.Success = true
 
 	// Step 3: optional upload speed test.

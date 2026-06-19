@@ -181,6 +181,90 @@ func TestParseVMess_WS(t *testing.T) {
 	assertEqual(t, "Remark", cfg.Remark, "CF-VMess-Test")
 }
 
+func TestParseShadowsocks_Base64(t *testing.T) {
+	// ss://base64(aes-256-gcm:password123)@198.51.100.1:8388#SS-Test
+	raw := "ss://YWVzLTI1Ni1nY206cGFzc3dvcmQxMjM=@198.51.100.1:8388#SS-Test"
+
+	cfg, err := ParseShadowsocks(raw)
+	if err != nil {
+		t.Fatalf("ParseShadowsocks failed: %v", err)
+	}
+
+	assertEqual(t, "Protocol", cfg.Protocol, "shadowsocks")
+	assertEqual(t, "Method", cfg.Method, "aes-256-gcm")
+	assertEqual(t, "Password", cfg.Password, "password123")
+	assertEqual(t, "Address", cfg.Address, "198.51.100.1")
+	assertEqual(t, "Port", itoa(cfg.Port), "8388")
+	assertEqual(t, "Remark", cfg.Remark, "SS-Test")
+}
+
+func TestParseShadowsocks_Plaintext(t *testing.T) {
+	// ss://chacha20-ietf-poly1305:secret@10.0.0.1:443#My-SS
+	raw := "ss://chacha20-ietf-poly1305:secret@10.0.0.1:443#My-SS"
+
+	cfg, err := ParseShadowsocks(raw)
+	if err != nil {
+		t.Fatalf("ParseShadowsocks failed: %v", err)
+	}
+
+	assertEqual(t, "Protocol", cfg.Protocol, "shadowsocks")
+	assertEqual(t, "Method", cfg.Method, "chacha20-ietf-poly1305")
+	assertEqual(t, "Password", cfg.Password, "secret")
+	assertEqual(t, "Address", cfg.Address, "10.0.0.1")
+	assertEqual(t, "Port", itoa(cfg.Port), "443")
+	assertEqual(t, "Remark", cfg.Remark, "My-SS")
+}
+
+func TestParseShadowsocks_viaParseProxyURL(t *testing.T) {
+	raw := "ss://YWVzLTEyOC1nY206dGVzdA=@192.168.1.1:1080#auto"
+	cfg, err := ParseProxyURL(raw)
+	if err != nil {
+		t.Fatalf("ParseProxyURL failed for ss://: %v", err)
+	}
+	assertEqual(t, "Protocol", cfg.Protocol, "shadowsocks")
+	assertEqual(t, "Method", cfg.Method, "aes-128-gcm")
+	assertEqual(t, "Password", cfg.Password, "test")
+}
+
+func TestParseShadowsocks_RoundTrip(t *testing.T) {
+	raw := "ss://YWVzLTI1Ni1nY206cGFzc3dvcmQxMjM=@198.51.100.1:8388#SS-Test"
+	cfg, err := ParseShadowsocks(raw)
+	if err != nil {
+		t.Fatalf("ParseShadowsocks failed: %v", err)
+	}
+	roundTrip := cfg.ToShareURL()
+	if !strings.HasPrefix(roundTrip, "ss://") {
+		t.Errorf("ToShareURL should start with ss://, got %q", roundTrip)
+	}
+	if !strings.Contains(roundTrip, "198.51.100.1:8388") {
+		t.Errorf("ToShareURL should contain host:port, got %q", roundTrip)
+	}
+}
+
+func TestBuildShadowsocksConfig(t *testing.T) {
+	cfg := &VLESSConfig{
+		Protocol: "shadowsocks",
+		Method:   "aes-256-gcm",
+		Password: "testpass",
+		Address:  "1.2.3.4",
+		Port:     8388,
+	}
+	b, err := BuildXrayConfig(cfg, 1080)
+	if err != nil {
+		t.Fatalf("BuildXrayConfig failed: %v", err)
+	}
+	json := string(b)
+	if !strings.Contains(json, `"protocol": "shadowsocks"`) {
+		t.Error("expected shadowsocks protocol in config")
+	}
+	if !strings.Contains(json, `"method": "aes-256-gcm"`) {
+		t.Error("expected method in config")
+	}
+	if !strings.Contains(json, `"password": "testpass"`) {
+		t.Error("expected password in config")
+	}
+}
+
 func assertEqual(t *testing.T, field, got, want string) {
 	t.Helper()
 	if got != want {
