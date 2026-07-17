@@ -181,6 +181,9 @@ func TestWeightedRandomIPv4Selection(t *testing.T) {
 }
 
 func TestRandomV6OnlyOnV4OnlySourceDoesNotPanic(t *testing.T) {
+	// Regression: when Source has v4 CIDRs but v6 enabled with no v6 CIDRs
+	// (common for CIDR-only scans), v6CumSizes is empty and Random() must
+	// not panic on the index access s.v6CumSizes[len(...)-1].
 	s, err := NewWithOptions(true, true, []string{"192.0.2.0/30"}, Options{UseBuiltin: false})
 	if err != nil {
 		t.Fatal(err)
