@@ -58,11 +58,18 @@ func New(path string, fmt Format) (*Writer, error) {
 
 	if fmt == FormatCSV {
 		w.csv = csv.NewWriter(f)
-		_ = w.csv.Write([]string{
+		if err := w.csv.Write([]string{
 			"ip", "loss_pct", "avg_ms", "min_ms", "max_ms",
 			"jitter_ms", "download_kbps", "speed_tested", "colo", "tls_ok", "ws_ok", "http_status",
-		})
+		}); err != nil {
+			f.Close()
+			return nil, fmt2err(path, err)
+		}
 		w.csv.Flush()
+		if err := w.csv.Error(); err != nil {
+			f.Close()
+			return nil, fmt2err(path, err)
+		}
 	}
 
 	return w, nil
@@ -88,10 +95,20 @@ func (w *Writer) Close() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
+	var flushErr error
 	if w.csv != nil {
 		w.csv.Flush()
+		flushErr = w.csv.Error()
 	}
-	return w.f.Close()
+	closeErr := w.f.Close()
+	switch {
+	case flushErr != nil && closeErr != nil:
+		return fmt.Errorf("flush: %v; close: %w", flushErr, closeErr)
+	case flushErr != nil:
+		return flushErr
+	default:
+		return closeErr
+	}
 }
 
 func (w *Writer) writeCSV(r *result.Result) error {

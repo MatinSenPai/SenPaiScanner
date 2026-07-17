@@ -138,6 +138,9 @@ func (s *Source) Random() net.IP {
 	}
 
 	if useV6 {
+		if len(s.v6CumSizes) == 0 {
+			return nil
+		}
 		totalWeight := s.v6CumSizes[len(s.v6CumSizes)-1]
 		r := s.rng.Float64() * totalWeight
 		idx := sort.Search(len(s.v6CumSizes), func(i int) bool {

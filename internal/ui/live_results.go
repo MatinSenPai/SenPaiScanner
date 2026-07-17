@@ -135,8 +135,13 @@ func (w *LiveResultWriter) flush() error {
 }
 
 func (w *LiveResultWriter) writeLocked() error {
-
-	if len(w.phase1Rows) == 0 {
+	// Write the live file as soon as any of these is true: Phase 1 produced
+	// a healthy row, Phase 2 has rows, or Phase 1 has signalled it is done
+	// (either because it finished normally or it ran to completion with zero
+	// healthy hits — e.g. a misconfigured scan). The previous version
+	// bailed out on `len(w.phase1Rows) == 0`, which silently dropped Phase
+	// 2 output and produced an empty file for scans with no connectivity.
+	if len(w.phase1Rows) == 0 && len(w.phase2Rows) == 0 && !w.phase1Done {
 		return nil
 	}
 

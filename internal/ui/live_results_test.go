@@ -78,3 +78,21 @@ func TestResolveTopNPreset(t *testing.T) {
 		t.Fatalf("topN = %d, want 50", got)
 	}
 }
+
+func TestLiveResultWriterPhase1OnlyZeroHealthyStillWrites(t *testing.T) {
+	// Regression: when Phase 1 produces zero healthy rows but finishes,
+	// the live file must still be created so the user sees headers/status,
+	// not an empty missing file.
+	w, path, err := newLiveResultWriter(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(path)
+	w.FinishPhase1Only()
+	if err := w.flush(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Errorf("live result file should exist after Phase1 finishes: %v", err)
+	}
+}

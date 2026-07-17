@@ -179,3 +179,15 @@ func TestWeightedRandomIPv4Selection(t *testing.T) {
 		t.Errorf("expected Subnet A to be chosen around 98%% of the time, got A=%d, B=%d", countA, countB)
 	}
 }
+
+func TestRandomV6OnlyOnV4OnlySourceDoesNotPanic(t *testing.T) {
+	s, err := NewWithOptions(true, true, []string{"192.0.2.0/30"}, Options{UseBuiltin: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 20; i++ {
+		if ip := s.Random(); ip == nil {
+			// nil is acceptable; panic is not.
+		}
+	}
+}

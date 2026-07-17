@@ -396,10 +396,14 @@ func (m *AppModel) applySavedConfig(cfg SavedConfig) {
 	m.configUploadTest = cfg.UploadTest
 	m.configSelectedPorts = make(map[int]bool)
 	for _, port := range cfg.Ports {
-		m.configSelectedPorts[port] = true
+		if port > 0 && port <= 65535 {
+			m.configSelectedPorts[port] = true
+		}
 	}
 	if len(m.configSelectedPorts) == 0 {
-		m.configSelectedPorts[0] = true
+		// No valid saved ports — fall back to a real probe port rather than
+		// port 0, which the engine would dial to as "any-addr".
+		m.configSelectedPorts[443] = true
 	}
 	m.configInput.SetValue(cfg.ConfigURL)
 	m.scanCfg.RequireWS = cfg.RequireWS
