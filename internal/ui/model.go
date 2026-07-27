@@ -390,7 +390,7 @@ func (m *AppModel) applySavedConfig(cfg SavedConfig) {
 	m.configTopNCustom = cfg.TopNCustom
 	m.configMinSpeedIdx = cfg.MinSpeedIdx
 	m.configMinSpeedCustom = cfg.MinSpeedCustom
-	m.configSpeedURLInput.SetValue(cfg.SpeedURL)
+	m.configSpeedURLInput = m.configSpeedURLInput.SetValue(cfg.SpeedURL)
 	m.configSpeedSizeIdx = cfg.SpeedSizeIdx
 	m.configSpeedSizeCustom = cfg.SpeedSizeCustom
 	m.configUploadTest = cfg.UploadTest
@@ -399,9 +399,9 @@ func (m *AppModel) applySavedConfig(cfg SavedConfig) {
 		m.configSelectedPorts[port] = true
 	}
 	if len(m.configSelectedPorts) == 0 {
-		m.configSelectedPorts[0] = true
+		m.configSelectedPorts[443] = true
 	}
-	m.configInput.SetValue(cfg.ConfigURL)
+	m.configInput = m.configInput.SetValue(cfg.ConfigURL)
 	m.scanCfg.RequireWS = cfg.RequireWS
 }
 
@@ -1907,7 +1907,7 @@ func (m *AppModel) toggleFocusedConfigPort() {
 		delete(m.configSelectedPorts, port)
 	}
 	if len(m.configSelectedPorts) == 0 {
-		m.configSelectedPorts[0] = true
+		m.configSelectedPorts[443] = true
 	}
 }
 

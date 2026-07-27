@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -90,7 +91,17 @@ func IsRunning() bool {
 }
 
 func loadIPs(path string) ([]net.IP, error) {
-	f, err := os.Open(path)
+	// Validate path to prevent path traversal attacks
+	if strings.Contains(path, "..") || strings.Contains(path, "\x00") {
+		return nil, fmt.Errorf("invalid file path")
+	}
+	// Clean the path and ensure it's a relative path
+	cleanPath := filepath.Clean(path)
+	if filepath.IsAbs(cleanPath) {
+		return nil, fmt.Errorf("absolute paths are not allowed")
+	}
+	
+	f, err := os.Open(cleanPath)
 	if err != nil {
 		return nil, err
 	}
