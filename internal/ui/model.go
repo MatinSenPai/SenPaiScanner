@@ -20,6 +20,7 @@ import (
 
 	"github.com/matinsenpai/senpaiscanner/internal/banner"
 	"github.com/matinsenpai/senpaiscanner/internal/config"
+	"github.com/matinsenpai/senpaiscanner/internal/export"
 	"github.com/matinsenpai/senpaiscanner/internal/result"
 	"github.com/matinsenpai/senpaiscanner/internal/xraytest"
 )
@@ -3402,6 +3403,11 @@ func (m AppModel) exportAllConfigs() string {
 		return fmt.Sprintf("invalid config URL: %v", err)
 	}
 
+	bundle, err := export.Generate(cfg, export.ParseEndpoints(endpoints))
+	if err != nil {
+		return fmt.Sprintf("export failed: %v", err)
+	}
+
 	exe, err := os.Executable()
 	dir := ""
 	if err == nil {
@@ -3414,158 +3420,14 @@ func (m AppModel) exportAllConfigs() string {
 		dir = "."
 	}
 
-	// 1. Export Subscription URLs
-	var subUrls []string
-	for _, ep := range endpoints {
-		parts := strings.Split(ep, ":")
-		port := cfg.Port
-		if len(parts) > 1 {
-			port, _ = strconv.Atoi(parts[1])
-		}
-		swapped := cfg.WithEndpoint(parts[0], port)
-		subUrls = append(subUrls, swapped.ToShareURL())
-	}
 	subPath := filepath.Join(dir, "senpaiscanner-sub.txt")
-	_ = os.WriteFile(subPath, []byte(strings.Join(subUrls, "\n")+"\n"), 0644)
+	_ = os.WriteFile(subPath, []byte(bundle.Subscription), 0644)
 
-	// 2. Export Sing-Box JSON
-	type SBOutbound struct {
-		Type       string                 `json:"type"`
-		Tag        string                 `json:"tag"`
-		Server     string                 `json:"server"`
-		ServerPort int                    `json:"server_port"`
-		UUID       string                 `json:"uuid,omitempty"`
-		Password   string                 `json:"password,omitempty"`
-		TLS        map[string]interface{} `json:"tls,omitempty"`
-		Transport  map[string]interface{} `json:"transport,omitempty"`
-	}
-
-	var sbOutbounds []interface{}
-	for i, ep := range endpoints {
-		parts := strings.Split(ep, ":")
-		ip := parts[0]
-		port := cfg.Port
-		if len(parts) > 1 {
-			port, _ = strconv.Atoi(parts[1])
-		}
-		tag := fmt.Sprintf("CF-Endpoint-%d", i+1)
-
-		o := SBOutbound{
-			Type:       cfg.Protocol,
-			Tag:        tag,
-			Server:     ip,
-			ServerPort: port,
-		}
-
-		if cfg.Protocol == "trojan" {
-			o.Password = cfg.Password
-		} else { // vless or vmess
-			o.UUID = cfg.UUID
-		}
-
-		// TLS
-		if cfg.Security == "tls" {
-			tlsConf := map[string]interface{}{
-				"enabled":     true,
-				"server_name": cfg.SNI,
-			}
-			if cfg.Fingerprint != "" {
-				tlsConf["utls"] = map[string]interface{}{
-					"enabled":     true,
-					"fingerprint": cfg.Fingerprint,
-				}
-			}
-			if len(cfg.ALPN) > 0 {
-				tlsConf["alpn"] = cfg.ALPN
-			}
-			o.TLS = tlsConf
-		}
-
-		// Transport
-		if cfg.Network == "ws" {
-			wsConf := map[string]interface{}{
-				"type": "ws",
-				"path": cfg.Path,
-			}
-			if cfg.Host != "" {
-				wsConf["headers"] = map[string]interface{}{
-					"Host": cfg.Host,
-				}
-			}
-			o.Transport = wsConf
-		} else if cfg.Network == "grpc" {
-			grpcConf := map[string]interface{}{
-				"type":         "grpc",
-				"service_name": cfg.ServiceName,
-			}
-			o.Transport = grpcConf
-		}
-
-		sbOutbounds = append(sbOutbounds, o)
-	}
-
-	// Minimal Sing-Box client config
-	sbConfig := map[string]interface{}{
-		"outbounds": sbOutbounds,
-	}
-	sbJSON, _ := json.MarshalIndent(sbConfig, "", "  ")
 	sbPath := filepath.Join(dir, "senpaiscanner-singbox.json")
-	_ = os.WriteFile(sbPath, sbJSON, 0644)
+	_ = os.WriteFile(sbPath, []byte(bundle.SingBox), 0644)
 
-	// 3. Export Clash YAML
-	var clashLines []string
-	clashLines = append(clashLines, "proxies:")
-	for i, ep := range endpoints {
-		parts := strings.Split(ep, ":")
-		ip := parts[0]
-		port := cfg.Port
-		if len(parts) > 1 {
-			port, _ = strconv.Atoi(parts[1])
-		}
-		name := fmt.Sprintf("CF-Endpoint-%d", i+1)
-
-		clashLines = append(clashLines, fmt.Sprintf("  - name: \"%s\"", name))
-		clashLines = append(clashLines, fmt.Sprintf("    type: %s", cfg.Protocol))
-		clashLines = append(clashLines, fmt.Sprintf("    server: %s", ip))
-		clashLines = append(clashLines, fmt.Sprintf("    port: %d", port))
-
-		if cfg.Protocol == "trojan" {
-			clashLines = append(clashLines, fmt.Sprintf("    password: %s", cfg.Password))
-			clashLines = append(clashLines, "    udp: true")
-		} else { // vless or vmess
-			clashLines = append(clashLines, fmt.Sprintf("    uuid: %s", cfg.UUID))
-			if cfg.Protocol == "vmess" {
-				clashLines = append(clashLines, "    alterId: 0")
-				clashLines = append(clashLines, "    cipher: auto")
-			}
-		}
-
-		if cfg.Security == "tls" {
-			clashLines = append(clashLines, "    tls: true")
-			if cfg.SNI != "" {
-				clashLines = append(clashLines, fmt.Sprintf("    servername: %s", cfg.SNI))
-			}
-			if cfg.Fingerprint != "" {
-				clashLines = append(clashLines, fmt.Sprintf("    client-fingerprint: %s", cfg.Fingerprint))
-			}
-		}
-
-		if cfg.Network == "ws" {
-			clashLines = append(clashLines, "    network: ws")
-			clashLines = append(clashLines, "    ws-opts:")
-			clashLines = append(clashLines, fmt.Sprintf("      path: %s", cfg.Path))
-			if cfg.Host != "" {
-				clashLines = append(clashLines, "      headers:")
-				clashLines = append(clashLines, fmt.Sprintf("        Host: %s", cfg.Host))
-			}
-		} else if cfg.Network == "grpc" {
-			clashLines = append(clashLines, "    network: grpc")
-			clashLines = append(clashLines, "    grpc-opts:")
-			clashLines = append(clashLines, fmt.Sprintf("      grpc-service-name: %s", cfg.ServiceName))
-		}
-	}
 	clashPath := filepath.Join(dir, "senpaiscanner-clash.yaml")
-	_ = os.WriteFile(clashPath, []byte(strings.Join(clashLines, "\n")+"\n"), 0644)
+	_ = os.WriteFile(clashPath, []byte(bundle.Clash), 0644)
 
 	return fmt.Sprintf("✓ configs exported to Clash, Sing-Box, and Sub files in %s", dir)
 }

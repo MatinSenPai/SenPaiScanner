@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SenPai Scanner</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- Aurora backdrop -->
+  <div class="aurora" aria-hidden="true">
+    <div class="blob blob-a"></div>
+    <div class="blob blob-b"></div>
+    <div class="blob blob-c"></div>
+    <div class="grain"></div>
+  </div>
+
+  <div class="app">
+    <!-- ===== Sidebar ===== -->
+    <aside class="glass sidebar">
+      <div class="brand">
+        <div class="brand-mark">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M13 2 3 14h7l-1 8 10-12h-7l1-8z"/>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <strong>SenPai</strong>
+          <span>Scanner</span>
+        </div>
+      </div>
+
+      <nav class="nav">
+        <button class="nav-item active" data-tab="scan">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+          <span>Scan</span>
+        </button>
+        <button class="nav-item" data-tab="results">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 3v18h18"/><path d="m7 14 4-4 3 3 5-6"/></svg>
+          <span>Results</span>
+        </button>
+        <button class="nav-item" data-tab="export">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M4 21h16"/></svg>
+          <span>Export</span>
+        </button>
+      </nav>
+
+      <div class="sidebar-foot">
+        <div class="version-chip" id="versionChip">v…</div>
+      </div>
+    </aside>
+
+    <!-- ===== Main ===== -->
+    <main class="content">
+      <!-- SCAN TAB -->
+      <section class="tab-pane" id="tab-scan">
+        <header class="pane-head">
+          <h1>Find Cloudflare IPs</h1>
+          <p class="subtitle">Scans the MahsaNG Cloudflare pool with weighted random sampling</p>
+        </header>
+
+        <div class="grid two-col">
+          <div class="glass card">
+            <div class="card-title">Scan parameters</div>
+            <div class="field">
+              <label>IP count</label>
+              <div class="seg" id="countSeg">
+                <button data-val="1000">1k</button>
+                <button data-val="5000" class="on">5k</button>
+                <button data-val="20000">20k</button>
+                <button data-val="0">Custom</button>
+              </div>
+              <input class="hidden" id="customCount" type="number" min="1" placeholder="e.g. 50000" />
+            </div>
+
+            <div class="field">
+              <label>Workers</label>
+              <div class="seg" id="workerSeg">
+                <button data-val="50" class="on">50</button>
+                <button data-val="100">100</button>
+                <button data-val="200">200</button>
+              </div>
+            </div>
+
+            <div class="field">
+              <label>Probe mode</label>
+              <div class="seg" id="modeSeg">
+                <button data-val="http" class="on">HTTP</button>
+                <button data-val="tls">TLS</button>
+                <button data-val="tcp">TCP</button>
+              </div>
+            </div>
+
+            <div class="field-row">
+              <div class="field">
+                <label>Timeout (s)</label>
+                <div class="seg" id="timeoutSeg">
+                  <button data-val="2">2</button>
+                  <button data-val="3">3</button>
+                  <button data-val="5" class="on">5</button>
+                </div>
+              </div>
+              <div class="field">
+                <label>Port</label>
+                <input id="portInput" type="number" value="443" />
+              </div>
+            </div>
+
+            <div class="field">
+              <label>SNI</label>
+              <input id="sniInput" type="text" value="speed.cloudflare.com" />
+            </div>
+
+            <div class="field">
+              <label>Colo filter (optional, comma separated)</label>
+              <input id="coloInput" type="text" placeholder="e.g. IKA, MHD" />
+            </div>
+
+            <div class="toggles">
+              <label class="toggle"><input type="checkbox" id="speedToggle" checked /><span></span>Speed test</label>
+              <label class="toggle"><input type="checkbox" id="wsToggle" checked /><span></span>Require WebSocket</label>
+            </div>
+          </div>
+
+          <div class="glass card">
+            <div class="card-title">Config URL (optional)</div>
+            <textarea id="configUrl" rows="3" placeholder="vless://… / trojan://… / vmess://…" spellcheck="false"></textarea>
+            <p class="hint">Paste your subscription config here to enable xray validation and config export.</p>
+
+            <div class="card-title card-title-spaced">Validation</div>
+            <div class="field-row">
+              <div class="field">
+                <label>Validate top</label>
+                <input id="topNInput" type="number" value="10" min="1" />
+              </div>
+              <div class="field">
+                <label>Timeout (s)</label>
+                <input id="valTimeoutInput" type="number" value="10" min="1" />
+              </div>
+            </div>
+
+            <div class="primary-actions">
+              <button class="btn primary" id="startBtn">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M6 4l14 8-14 8z"/></svg>
+                <span id="startBtnLabel">Start scan</span>
+              </button>
+              <button class="btn ghost" id="stopBtn" disabled>
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+                Stop
+              </button>
+              <button class="btn ghost" id="validateBtn" disabled>
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m5 13 4 4 10-10"/></svg>
+                Validate top IPs
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="glass card stats-card" id="statsCard" style="display:none">
+          <div class="stat"><span class="stat-num" id="stTested">0</span><span class="stat-label">Tested</span></div>
+          <div class="stat"><span class="stat-num ok" id="stHealthy">0</span><span class="stat-label">Healthy</span></div>
+          <div class="stat"><span class="stat-num bad" id="stFailed">0</span><span class="stat-label">Failed</span></div>
+          <div class="stat"><span class="stat-num" id="stInFlight">0</span><span class="stat-label">In flight</span></div>
+          <div class="stat stat-wide"><div class="progress"><div class="progress-fill" id="progressFill"></div></div><span class="stat-label" id="progressLabel">0%</span></div>
+        </div>
+
+        <div class="glass card results-card" id="resultsCard" style="display:none">
+          <div class="card-title row-title">
+            Live results
+            <span class="pill" id="scanStatePill">idle</span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr><th>IP</th><th>Port</th><th>Colo</th><th>Avg (ms)</th><th>Min (ms)</th><th>Loss</th><th>Speed</th><th>Status</th></tr>
+              </thead>
+              <tbody id="resultsBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- RESULTS TAB -->
+      <section class="tab-pane hidden" id="tab-results">
+        <header class="pane-head">
+          <h1>Scan results</h1>
+          <p class="subtitle">Healthy Cloudflare edges found by the scanner</p>
+        </header>
+
+        <div class="glass card results-card">
+          <div class="card-title row-title">
+            Healthy endpoints
+            <span class="pill good" id="healthyCountPill">0 healthy</span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr><th>IP</th><th>Port</th><th>Colo</th><th>Avg (ms)</th><th>Min (ms)</th><th>Loss</th><th>Speed</th></tr>
+              </thead>
+              <tbody id="healthyBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="glass card results-card">
+          <div class="card-title row-title">
+            xray validation
+            <span class="pill" id="valStatePill">idle</span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr><th>IP</th><th>Port</th><th>Latency</th><th>Download</th><th>Upload</th><th>Status</th></tr>
+              </thead>
+              <tbody id="validationBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- EXPORT TAB -->
+      <section class="tab-pane hidden" id="tab-export">
+        <header class="pane-head">
+          <h1>Export configs</h1>
+          <p class="subtitle">One template config + many working IPs → full config pack</p>
+        </header>
+
+        <div class="glass card">
+          <div class="card-title row-title">
+            Working endpoints
+            <span class="pill good" id="exportCountPill">0</span>
+          </div>
+          <div class="endpoint-list" id="endpointList"><p class="empty">No working endpoints yet — run a scan first.</p></div>
+        </div>
+
+        <div class="grid two-col">
+          <div class="glass card">
+            <div class="card-title">Subscription URLs</div>
+            <p class="hint">One vless:// link per IP — paste directly into your client.</p>
+            <pre class="code-box" id="subPreview"></pre>
+            <div class="btn-row">
+              <button class="btn ghost" id="copySubBtn">Copy</button>
+              <button class="btn ghost" id="saveSubBtn">Save .txt</button>
+            </div>
+          </div>
+
+          <div class="glass card">
+            <div class="card-title">Sing-box / Clash</div>
+            <div class="btn-row">
+              <button class="btn ghost" id="copySbBtn">Copy sing-box JSON</button>
+              <button class="btn ghost" id="saveSbBtn">Save .json</button>
+              <button class="btn ghost" id="copyClashBtn">Copy Clash YAML</button>
+              <button class="btn ghost" id="saveClashBtn">Save .yaml</button>
+            </div>
+            <pre class="code-box code-box-sm" id="sbPreview"></pre>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div class="toast" id="toast"></div>
+  <script src="app.js"></script>
+</body>
+</html>

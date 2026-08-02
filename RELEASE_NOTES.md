@@ -1,5 +1,32 @@
 # SenPai Scanner — Release Notes
 
+## v0.8.0
+
+### What's New
+
+#### Desktop GUI (Wails v2)
+- New cross-platform desktop application (`desktop/`) built with Wails v2 — Windows, macOS, and Linux
+- Liquid-glass dark UI: aurora backdrop, blurred glass panels, segmented controls, live stats
+- Full scan control: IP count (1k / 5k / 20k / custom), workers, probe mode (HTTP / TLS / TCP), timeout, port, SNI, colo filter, speed test and WebSocket toggles
+- Live progress events (`scan:stats`, `scan:result`, `scan:done`) streamed from Go to the UI
+- Phase 2 xray validation of the top N healthy IPs inside the GUI (`validate:result`, `validate:done`)
+- Config export built in: paste one `vless://` / `trojan://` / `vmess://` config URL, generate a full pack (subscription URLs, sing-box JSON, Clash YAML) for all working IPs, copy or save via native dialogs
+- Build script `desktop/build_gui.ps1` — single-platform or cross-compile (`-All`)
+
+#### MahsaNG-Style IP Sampling
+- Cloudflare range pool (`internal/ipsrc/ranges_v4.txt`, 628 ranges) now sampled with the MahsaNG weighted-random algorithm: larger ranges are picked more often, every IP is unique, and small pools enumerate + shuffle instead of capping at 1024
+- Original selectable counts (1000 / 5000 / 20000 / custom) are preserved — no hard limit
+- Phase 1 and the Android app both use the same weighted sampling via `MahsaNGV4Stream`
+
+#### Shared Export Package
+- New `internal/export` package: `Generate`, `ParseEndpoints`, sing-box and Clash builders, shared by the TUI (`exportAllConfigs`) and the desktop GUI
+
+### Other
+- Removed the dead, unbuildable `pkg/scanner` package that blocked `go mod tidy` and full-module builds
+- `go test ./...` and `go vet ./...` pass for the whole module
+
+---
+
 ## v0.7.0
 
 **Release date:** June 13, 2026
