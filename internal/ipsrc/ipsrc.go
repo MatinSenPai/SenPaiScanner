@@ -26,6 +26,7 @@ var builtinV6 string
 const (
 	cfIPsV4URL = "https://www.cloudflare.com/ips-v4/"
 	cfIPsV6URL = "https://www.cloudflare.com/ips-v6/"
+
 )
 
 // Source holds the CIDR ranges used for IP generation.
@@ -196,6 +197,81 @@ func (s *Source) Stream(ctx context.Context, count int) <-chan net.IP {
 	return ch
 }
 
+// MahsaNGV4Stream emits a MahsaNG-style Cloudflare candidate batch: unique
+// IPv4 addresses, selected with each individual address in the configured
+// CIDRs having equal probability. Small pools are enumerated once and
+// shuffled instead of being repeatedly sampled. The caller controls the batch
+// size; no MahsaNG-specific cap is imposed.
+func (s *Source) MahsaNGV4Stream(ctx context.Context, count int) <-chan net.IP {
+	if count <= 0 {
+		return s.Stream(ctx, count)
+	}
+	items := s.MahsaNGV4Sample(count)
+	ch := make(chan net.IP, min(len(items), 64))
+	go func() {
+		defer close(ch)
+		for _, ip := range items {
+			select {
+			case <-ctx.Done():
+				return
+			case ch <- ip:
+			}
+		}
+	}()
+	return ch
+}
+
+// MahsaNGV4Sample materialises a single MahsaNG-style candidate batch. It
+// intentionally includes every address in a small CIDR, including its network
+// and broadcast addresses, matching the reference scanner's range handling.
+func (s *Source) MahsaNGV4Sample(count int) []net.IP {
+	if len(s.v4Nets) == 0 || count <= 0 {
+		return nil
+	}
+	limit := count
+
+	total := s.v4CumSizes[len(s.v4CumSizes)-1]
+	if total <= int64(limit) {
+		items := make([]net.IP, 0, total)
+		for _, n := range s.v4Nets {
+			base, size, ok := ipv4NetworkAndSize(n)
+			if !ok {
+				continue
+			}
+			for offset := int64(0); offset < size; offset++ {
+				items = append(items, ipv4FromUint32(base+uint32(offset)))
+			}
+		}
+		s.rng.Shuffle(len(items), func(i, j int) { items[i], items[j] = items[j], items[i] })
+		return items
+	}
+
+	selected := make(map[uint32]struct{}, limit)
+	items := make([]net.IP, 0, limit)
+	attemptLimit := int64(limit * 40)
+	for attempts := int64(0); len(items) < limit && attempts < attemptLimit; attempts++ {
+		index := s.rng.Int63n(total)
+		before := int64(0)
+		for _, n := range s.v4Nets {
+			base, size, ok := ipv4NetworkAndSize(n)
+			if !ok {
+				continue
+			}
+			after := before + size
+			if index < after {
+				value := base + uint32(index-before)
+				if _, exists := selected[value]; !exists {
+					selected[value] = struct{}{}
+					items = append(items, ipv4FromUint32(value))
+				}
+				break
+			}
+			before = after
+		}
+	}
+	return items
+}
+
 // FromCIDR expands a single CIDR string into a channel of all its IPs.
 // For large ranges use caution — prefer Stream for /16 and above.
 func FromCIDR(ctx context.Context, cidr string) (<-chan net.IP, error) {
@@ -308,6 +384,24 @@ func randomFromNet(n *net.IPNet, rng *rand.Rand) net.IP {
 		host := byte(rng.Intn(256)) &^ b
 		ip[i] = n.IP[i] | host
 	}
+	return ip
+}
+
+func ipv4NetworkAndSize(n *net.IPNet) (uint32, int64, bool) {
+	ip := n.IP.To4()
+	if ip == nil {
+		return 0, 0, false
+	}
+	ones, bits := n.Mask.Size()
+	if bits != 32 || ones < 0 {
+		return 0, 0, false
+	}
+	return binary.BigEndian.Uint32(ip), int64(1) << (bits - ones), true
+}
+
+func ipv4FromUint32(value uint32) net.IP {
+	ip := make(net.IP, net.IPv4len)
+	binary.BigEndian.PutUint32(ip, value)
 	return ip
 }
 

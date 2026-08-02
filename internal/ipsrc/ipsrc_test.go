@@ -179,3 +179,47 @@ func TestWeightedRandomIPv4Selection(t *testing.T) {
 		t.Errorf("expected Subnet A to be chosen around 98%% of the time, got A=%d, B=%d", countA, countB)
 	}
 }
+
+func TestMahsaNGV4SampleEnumeratesSmallPoolOnce(t *testing.T) {
+	s, err := NewWithOptions(true, false, []string{"192.0.2.0/30"}, Options{UseBuiltin: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	items := s.MahsaNGV4Sample(100)
+	if len(items) != 4 {
+		t.Fatalf("got %d addresses, want all 4 addresses in the /30", len(items))
+	}
+	got := make(map[string]struct{}, len(items))
+	for _, ip := range items {
+		got[ip.String()] = struct{}{}
+	}
+	for _, want := range []string{"192.0.2.0", "192.0.2.1", "192.0.2.2", "192.0.2.3"} {
+		if _, ok := got[want]; !ok {
+			t.Errorf("missing %s", want)
+		}
+	}
+}
+
+func TestMahsaNGV4SampleHonorsRequestedCountAndAvoidsDuplicates(t *testing.T) {
+	s, err := NewWithOptions(true, false, []string{"198.51.100.0/16"}, Options{UseBuiltin: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const requested = 5000
+	items := s.MahsaNGV4Sample(requested)
+	if len(items) != requested {
+		t.Fatalf("got %d addresses, want %d", len(items), requested)
+	}
+	seen := make(map[string]struct{}, len(items))
+	for _, ip := range items {
+		if !s.v4Nets[0].Contains(ip) {
+			t.Fatalf("sampled IP %s outside configured range", ip)
+		}
+		if _, duplicate := seen[ip.String()]; duplicate {
+			t.Fatalf("duplicate IP %s", ip)
+		}
+		seen[ip.String()] = struct{}{}
+	}
+}

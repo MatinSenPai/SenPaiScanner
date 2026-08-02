@@ -149,6 +149,9 @@ func runScan(cfg ScanConfig, scanID int64) {
 	}
 
 	ipStream := src.Stream(ctx, count)
+	if useBuiltin && cfg.UseV4 && !cfg.UseV6 {
+		ipStream = src.MahsaNGV4Stream(ctx, count)
+	}
 	eng.Run(ctx, ipStream, func(r *result.Result) {
 		if prog != nil {
 			s := eng.Stats()
@@ -237,7 +240,7 @@ func runColos(scanID int64) {
 		},
 	}
 	eng := engine.New(engCfg)
-	ipStream := src.Stream(ctx, 300)
+	ipStream := src.MahsaNGV4Stream(ctx, 300)
 
 	eng.Run(ctx, ipStream, func(r *result.Result) {
 		if prog != nil {
@@ -342,7 +345,7 @@ func runConfigPhase1(opts configPhase1Options) {
 			}
 			return
 		}
-		ipStream = src.Stream(ctx, opts.count)
+		ipStream = src.MahsaNGV4Stream(ctx, opts.count)
 		neighbor = neighborScanOpts{
 			enabled:  true,
 			nets:     src.IPv4Nets(),

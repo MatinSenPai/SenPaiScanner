@@ -231,7 +231,7 @@ func runScan(configJson string, callback Callback) {
 		}
 		srcCtx, srcCancel := context.WithCancel(context.Background())
 		defer srcCancel()
-		ipStream = src.Stream(srcCtx, count)
+		ipStream = src.MahsaNGV4Stream(srcCtx, count)
 		neighborNets = src.IPv4Nets()
 	}
 

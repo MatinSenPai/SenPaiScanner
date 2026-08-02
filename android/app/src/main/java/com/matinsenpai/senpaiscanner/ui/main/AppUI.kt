@@ -415,7 +415,7 @@ fun SettingsScreen(config: ScanConfig, onConfigChanged: (ScanConfig) -> Unit) {
             SettingSection("Source", "") {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     RadioButton(selected = config.sourceType == "Random", onClick = { onConfigChanged(config.copy(sourceType = "Random")) }, colors = RadioButtonDefaults.colors(selectedColor = SenPaiOrange))
-                    Text("Random", modifier = Modifier.clickable { onConfigChanged(config.copy(sourceType = "Random")) })
+                    Text("MahsaNG Cloudflare pool", modifier = Modifier.clickable { onConfigChanged(config.copy(sourceType = "Random")) })
                     Spacer(modifier = Modifier.width(16.dp))
                     RadioButton(selected = config.sourceType == "From File", onClick = { onConfigChanged(config.copy(sourceType = "From File")) }, colors = RadioButtonDefaults.colors(selectedColor = SenPaiOrange))
                     Text("From File", modifier = Modifier.clickable { onConfigChanged(config.copy(sourceType = "From File")) })
@@ -433,7 +433,7 @@ fun SettingsScreen(config: ScanConfig, onConfigChanged: (ScanConfig) -> Unit) {
         item {
             SettingDropdown(
                 label = "Count",
-                description = "IPs to probe in Phase 1",
+                description = "Unique Cloudflare IPs to probe in Phase 1",
                 options = listOf("1000", "5000", "20000", "Custom"),
                 selectedOption = config.countType,
                 customValue = config.customCount,
