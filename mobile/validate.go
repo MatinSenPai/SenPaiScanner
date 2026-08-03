@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptrace"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -169,6 +170,16 @@ func mobileValidateOnce(ctx context.Context, cfg *xraytest.VLESSConfig, timeout 
 	res.BytesRecv = bytesRecv
 	res.Throughput = throughput
 	res.Success = true
+
+	// Step 3: optional upload speed test.
+	if cfg.UploadTest {
+		uploadCtx, uploadCancel := context.WithTimeout(ctx, mobileSpeedBudget(timeout, latency))
+		defer uploadCancel()
+		uploadSent, uploadThroughput := mobileUploadSpeedTest(uploadCtx, proxyURL, cfg)
+		res.UploadBytesSent = uploadSent
+		res.UploadThroughput = uploadThroughput
+	}
+
 	return res
 }
 
@@ -665,14 +676,27 @@ func mobileSpeedTestTargets(cfg *xraytest.VLESSConfig, sampleBytes int64) []mobi
 		}
 	}
 
+	if cfg != nil && cfg.SpeedURL != "" {
+		add(cfg.SpeedURL, "", true)
+	}
+
 	add(fmt.Sprintf("https://speed.cloudflare.com/__down?bytes=%d", sampleBytes), "", false)
 	add("https://www.cloudflare.com/", "", true)
 	return targets
 }
 
 func mobileSpeedTest(ctx context.Context, proxyAddr string, cfg *xraytest.VLESSConfig) (int64, float64) {
-	const sampleBytes int64 = 128 * 1024
-	const minBytes int64 = 8 * 1024
+	sampleBytes := int64(128 * 1024)
+	if cfg != nil && cfg.SpeedSize > 0 {
+		sampleBytes = cfg.SpeedSize
+	}
+	minBytes := int64(8 * 1024)
+	if sampleBytes < minBytes {
+		minBytes = sampleBytes / 2
+	}
+	if minBytes < 4096 {
+		minBytes = 4096
+	}
 
 	for _, target := range mobileSpeedTestTargets(cfg, sampleBytes) {
 		bytesRecv, throughput, err := mobileDownload(ctx, proxyAddr, target.url, sampleBytes, target.relaxed, target.host)
@@ -723,4 +747,110 @@ func mobileBurstThroughput(ctx context.Context, proxyAddr, targetURL string, tar
 		return total, 0
 	}
 	return total, float64(total) / elapsed
+}
+
+func mobileUploadSpeedTest(ctx context.Context, proxyAddr string, cfg *xraytest.VLESSConfig) (int64, float64) {
+	sampleBytes := int64(128 * 1024) // speedSampleBytesFast equivalent
+	if cfg != nil && cfg.SpeedSize > 0 {
+		sampleBytes = cfg.SpeedSize
+	}
+	const speedMinBytes = int64(8 * 1024)
+	if sampleBytes < speedMinBytes {
+		sampleBytes = speedMinBytes
+	}
+
+	var targets []mobileSpeedTestTarget
+	if cfg != nil {
+		host := cfg.Host
+		if host == "" {
+			host = cfg.SNI
+		}
+		port := cfg.Port
+		if port <= 0 {
+			port = 443
+		}
+		scheme := "https"
+		if port == 80 {
+			scheme = "http"
+		}
+		if host != "" && cfg.Address != "" {
+			targets = append(targets, mobileSpeedTestTarget{
+				url:      fmt.Sprintf("%s://%s/cdn-cgi/trace", scheme, net.JoinHostPort(cfg.Address, strconv.Itoa(port))),
+				host:     host,
+				relaxed:  true,
+				minBytes: 1,
+			})
+		}
+	}
+	targets = append(targets, mobileSpeedTestTarget{
+		url:      "https://cp.cloudflare.com/cdn-cgi/trace",
+		relaxed:  true,
+		minBytes: 1,
+	})
+
+	for _, target := range targets {
+		sent, throughput, err := mobileUpload(ctx, proxyAddr, target.url, sampleBytes, target.relaxed, target.host)
+		if err == nil && sent > 0 && throughput > 0 {
+			return sent, throughput
+		}
+	}
+
+	return 0, 0
+}
+
+func mobileUpload(ctx context.Context, proxyAddr, uploadURL string, maxBytes int64, relaxed bool, authority string) (int64, float64, error) {
+	if maxBytes <= 0 {
+		return 0, 0, fmt.Errorf("invalid maxBytes %d", maxBytes)
+	}
+
+	client := &http.Client{
+		Transport: mobileProxyTransportForTarget(proxyAddr, uploadURL, authority),
+		Timeout:   mobileClientTimeout(ctx, 30*time.Second),
+	}
+
+	body := io.LimitReader(mobileRandReader(), maxBytes)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, uploadURL, body)
+	if err != nil {
+		return 0, 0, err
+	}
+	req.ContentLength = maxBytes
+	req.Header.Set("Content-Type", "application/octet-stream")
+	req.Header.Set("User-Agent", "senpaiscanner/1.0")
+	if authority != "" {
+		req.Host = authority
+	}
+
+	start := time.Now()
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0, 0, err
+	}
+	defer resp.Body.Close()
+	io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+
+	if !relaxed && (resp.StatusCode < 200 || resp.StatusCode >= 400) {
+		return 0, 0, fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	if relaxed && resp.StatusCode >= 500 {
+		return 0, 0, fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+
+	elapsed := time.Since(start).Seconds()
+	if elapsed <= 0 {
+		return maxBytes, 0, nil
+	}
+	return maxBytes, float64(maxBytes) / elapsed, nil
+}
+
+var mobileRandReader = func() io.Reader {
+	return &mobileZeroReader{}
+}
+
+type mobileZeroReader struct{}
+
+func (z *mobileZeroReader) Read(p []byte) (int, error) {
+	for i := range p {
+		p[i] = 0
+	}
+	return len(p), nil
 }

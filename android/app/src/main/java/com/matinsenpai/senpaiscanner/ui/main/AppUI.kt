@@ -199,7 +199,17 @@ private fun SessionRail(uiState: ScanUiState, onStop: () -> Unit) {
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(status, color = statusColor, fontSize = 12.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp)
-            Spacer(Modifier.weight(1f))
+            Text(
+                text = when {
+                    uiState.isMetaLoading -> "  •  DETECTING ISP"
+                    uiState.isp.isNotBlank() -> "  •  ${uiState.isp}"
+                    else -> ""
+                },
+                color = SignalMuted,
+                fontSize = 10.sp,
+                maxLines = 1,
+                modifier = Modifier.padding(start = 6.dp).weight(1f),
+            )
             if (uiState.isRunning) {
                 Button(
                     onClick = onStop,

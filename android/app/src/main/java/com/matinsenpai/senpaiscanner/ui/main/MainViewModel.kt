@@ -1,13 +1,17 @@
 package com.matinsenpai.senpaiscanner.ui.main
 
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import com.matinsenpai.senpaiscanner.mobile.Callback
 import com.matinsenpai.senpaiscanner.mobile.Mobile
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
@@ -45,6 +49,7 @@ data class IpResult(
     val phase2Type: String = "",
     val phase2Speed: Double = 0.0,
     val phase2Status: Boolean = false,
+    val phase2UploadSpeed: Double = 0.0,
 )
 
 @Serializable
@@ -54,6 +59,13 @@ data class ExportBundle(
     val singBox: String,
     val clash: String,
     val count: Int,
+)
+
+@Serializable
+data class MetaResponse(
+    val as_organization: String = "",
+    val ip: String = "",
+    val colo: String = "",
 )
 
 enum class SessionPhase { IDLE, SCANNING, STOPPING, SPEED_TESTING }
@@ -72,6 +84,10 @@ data class ScanUiState(
     val config: ScanConfig = ScanConfig(),
     val exportBundle: ExportBundle? = null,
     val error: String? = null,
+    val isp: String = "",
+    val publicIp: String = "",
+    val networkColo: String = "",
+    val isMetaLoading: Boolean = false,
 ) {
     val isRunning: Boolean get() = phase != SessionPhase.IDLE
     val greenResults: List<IpResult>
@@ -84,6 +100,10 @@ class MainViewModel : ViewModel() {
     private val json = Json { ignoreUnknownKeys = true }
     private val _uiState = MutableStateFlow(ScanUiState())
     val uiState: StateFlow<ScanUiState> = _uiState.asStateFlow()
+
+    init {
+        fetchUserMeta()
+    }
 
     private val scanCallback = object : Callback {
         override fun onProgress(
@@ -124,6 +144,7 @@ class MainViewModel : ViewModel() {
             phase2Type: String,
             phase2Speed: Double,
             phase2Status: Boolean,
+            phase2UploadSpeed: Double,
         ) {
             val incoming = IpResult(
                 ip = ip,
@@ -136,6 +157,7 @@ class MainViewModel : ViewModel() {
                 phase2Type = phase2Type,
                 phase2Speed = phase2Speed,
                 phase2Status = phase2Status,
+                phase2UploadSpeed = phase2UploadSpeed,
             )
             _uiState.update { current ->
                 val withoutPrevious = current.results.filterNot {
@@ -156,6 +178,26 @@ class MainViewModel : ViewModel() {
 
     fun updateConfig(config: ScanConfig) {
         _uiState.update { it.copy(config = config, exportBundle = null) }
+    }
+
+    fun fetchUserMeta() {
+        viewModelScope.launch(Dispatchers.IO) {
+            _uiState.update { it.copy(isMetaLoading = true) }
+            runCatching {
+                json.decodeFromString<MetaResponse>(Mobile.fetchMeta())
+            }.onSuccess { meta ->
+                _uiState.update {
+                    it.copy(
+                        isp = meta.as_organization,
+                        publicIp = meta.ip,
+                        networkColo = meta.colo,
+                        isMetaLoading = false,
+                    )
+                }
+            }.onFailure {
+                _uiState.update { it.copy(isMetaLoading = false) }
+            }
+        }
     }
 
     fun startScan() {

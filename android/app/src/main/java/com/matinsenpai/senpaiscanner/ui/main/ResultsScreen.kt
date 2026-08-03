@@ -237,6 +237,9 @@ private fun SpeedResultCard(result: IpResult, onCopy: () -> Unit) {
                     Icon(Icons.Outlined.ContentCopy, contentDescription = "Copy speed-tested endpoint", tint = SignalCyan)
                 }
             }
+            if (result.phase2UploadSpeed > 0) {
+                Text("UPLOAD  ${formatSpeed(result.phase2UploadSpeed)}", color = SignalMuted, fontSize = 11.sp)
+            }
         }
     }
 }

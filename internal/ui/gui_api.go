@@ -300,6 +300,16 @@ func fetchMeta() MetaMsg {
 			best = mergeMeta(best, m)
 		}
 	}
+	if best.IP != "" && cleanASOrganization(best.ASOrganization) == "" {
+		if isp, ok := LookupIranISP(best.IP); ok {
+			best.ASOrganization = isp
+			if best.Source == "" {
+				best.Source = "Embedded Iran ISP ranges"
+			} else {
+				best.Source += " + Embedded Iran ISP ranges"
+			}
+		}
+	}
 	best.ASOrganization = cleanASOrganization(best.ASOrganization)
 	if best.ASOrganization == "" && best.ASN > 0 {
 		best.ASOrganization = fmt.Sprintf("AS%d", best.ASN)

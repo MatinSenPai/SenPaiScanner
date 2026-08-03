@@ -18,12 +18,13 @@ import (
 	"github.com/matinsenpai/senpaiscanner/internal/ipsrc"
 	"github.com/matinsenpai/senpaiscanner/internal/prober"
 	"github.com/matinsenpai/senpaiscanner/internal/result"
+	"github.com/matinsenpai/senpaiscanner/internal/ui"
 	"github.com/matinsenpai/senpaiscanner/internal/xraytest"
 )
 
 type Callback interface {
 	OnProgress(tested int, healthy int, failed int, inFlight int, isPhase2 bool)
-	OnResult(ip string, port int, latencyMs int, loss float64, colo string, isHealthy bool, isPhase2 bool, phase2Type string, phase2Speed float64, phase2Status bool)
+	OnResult(ip string, port int, latencyMs int, loss float64, colo string, isHealthy bool, isPhase2 bool, phase2Type string, phase2Speed float64, phase2Status bool, phase2UploadSpeed float64)
 	OnFinished()
 	OnError(err string)
 }
@@ -411,7 +412,7 @@ func runScan(configJson string, callback Callback) {
 				phase1Cache = append(phase1Cache, r)
 				mu.Unlock()
 				if callback != nil {
-					callback.OnResult(r.IP.String(), r.Port, int(r.Avg().Milliseconds()), r.Loss(), r.Colo, true, false, "", 0.0, false)
+					callback.OnResult(r.IP.String(), r.Port, int(r.Avg().Milliseconds()), r.Loss(), r.Colo, true, false, "", 0.0, false, 0.0)
 				}
 			}
 			maybeEnqueueNeighbors(r)
@@ -442,7 +443,7 @@ func runScan(configJson string, callback Callback) {
 			phase1Cache = append(phase1Cache, r)
 			mu.Unlock()
 			if callback != nil {
-				callback.OnResult(r.IP.String(), r.Port, int(r.Avg().Milliseconds()), r.Loss(), r.Colo, true, false, "", 0.0, false)
+				callback.OnResult(r.IP.String(), r.Port, int(r.Avg().Milliseconds()), r.Loss(), r.Colo, true, false, "", 0.0, false, 0.0)
 			}
 		}
 	}
@@ -500,13 +501,14 @@ phase1Done:
 
 		// Create buffered channel for Phase 2 results
 		type phase2ResultMsg struct {
-			ip         string
-			port       int
-			latencyMs  int
-			colo       string
-			transport  string
-			throughput float64
-			success    bool
+			ip               string
+			port             int
+			latencyMs        int
+			colo             string
+			transport        string
+			throughput       float64
+			uploadThroughput float64
+			success          bool
 		}
 		phase2ResultChan := make(chan phase2ResultMsg, len(phase1Results))
 
@@ -525,13 +527,13 @@ phase1Done:
 						return
 					}
 					if callback != nil {
-						callback.OnResult(msg.ip, msg.port, msg.latencyMs, 0.0, msg.colo, true, true, msg.transport, msg.throughput, msg.success)
+						callback.OnResult(msg.ip, msg.port, msg.latencyMs, 0.0, msg.colo, true, true, msg.transport, msg.throughput, msg.success, msg.uploadThroughput)
 					}
 				case <-ctx.Done():
 					// Context cancelled, drain remaining messages and exit
 					for msg := range phase2ResultChan {
 						if callback != nil {
-							callback.OnResult(msg.ip, msg.port, msg.latencyMs, 0.0, msg.colo, true, true, msg.transport, msg.throughput, msg.success)
+							callback.OnResult(msg.ip, msg.port, msg.latencyMs, 0.0, msg.colo, true, true, msg.transport, msg.throughput, msg.success, msg.uploadThroughput)
 						}
 					}
 					return
@@ -565,13 +567,14 @@ phase1Done:
 			// Send result to callback goroutine instead of calling callback directly
 			select {
 			case phase2ResultChan <- phase2ResultMsg{
-				ip:         r.IP.String(),
-				port:       r.Port,
-				latencyMs:  int(vr.Latency.Milliseconds()),
-				colo:       r.Colo,
-				transport:  vr.Transport,
-				throughput: vr.Throughput,
-				success:    vr.Success,
+				ip:               r.IP.String(),
+				port:             r.Port,
+				latencyMs:        int(vr.Latency.Milliseconds()),
+				colo:             r.Colo,
+				transport:        vr.Transport,
+				throughput:       vr.Throughput,
+				uploadThroughput: vr.UploadThroughput,
+				success:          vr.Success,
 			}:
 			case <-ctx.Done():
 				break
@@ -680,7 +683,7 @@ func runSpeedTest(configJson string, candidates []*result.Result, callback Callb
 				passed++
 			}
 			if callback != nil {
-				callback.OnResult(candidate.IP.String(), candidate.Port, int(vr.Latency.Milliseconds()), 0, candidate.Colo, true, true, vr.Transport, vr.Throughput, vr.Success)
+				callback.OnResult(candidate.IP.String(), candidate.Port, int(vr.Latency.Milliseconds()), 0, candidate.Colo, true, true, vr.Transport, vr.Throughput, vr.Success, vr.UploadThroughput)
 				callback.OnProgress(done, passed, done-passed, total-done, true)
 			}
 		}
@@ -714,7 +717,7 @@ func runSpeedTest(configJson string, candidates []*result.Result, callback Callb
 		}
 		done := index + 1
 		if callback != nil {
-			callback.OnResult(candidate.IP.String(), candidate.Port, int(measured.Avg().Milliseconds()), measured.Loss(), candidate.Colo, true, true, "direct", measured.Throughput, success)
+			callback.OnResult(candidate.IP.String(), candidate.Port, int(measured.Avg().Milliseconds()), measured.Loss(), candidate.Colo, true, true, "direct", measured.Throughput, success, 0.0)
 			callback.OnProgress(done, passed, done-passed, total-done, true)
 		}
 	}
@@ -744,4 +747,16 @@ func GenerateConfigs(configURL, endpointsText string) (string, error) {
 		return "", err
 	}
 	return string(encoded), nil
+}
+
+// FetchMeta returns the shared multi-source ISP metadata as JSON for gomobile.
+// The shared resolver combines Cloudflare, IPWhois and IPinfo and falls back to
+// Team Cymru DNS, so Android and the desktop interfaces report the same result.
+func FetchMeta() string {
+	meta := ui.FetchMeta()
+	encoded, err := json.Marshal(meta)
+	if err != nil {
+		return ""
+	}
+	return string(encoded)
 }
