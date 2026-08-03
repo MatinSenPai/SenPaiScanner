@@ -16,9 +16,9 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/MatinSenPai/SenPaiScanner/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/MatinSenPai/SenPaiScanner/actions/workflows/ci.yml/badge.svg"></a>
-  <a href="https://github.com/MatinSenPai/SenPaiScanner/actions/workflows/build-gui.yml"><img alt="Desktop GUI" src="https://github.com/MatinSenPai/SenPaiScanner/actions/workflows/build-gui.yml/badge.svg"></a>
-  <a href="https://github.com/MatinSenPai/SenPaiScanner/actions/workflows/build-android.yml"><img alt="Android" src="https://github.com/MatinSenPai/SenPaiScanner/actions/workflows/build-android.yml/badge.svg"></a>
+  <a href="https://github.com/MatinSenPai/SenPaiScanner/stargazers"><img alt="GitHub Stars" src="https://img.shields.io/github/stars/MatinSenPai/SenPaiScanner?style=flat-square&logo=github&color=f5c542"></a>
+  <a href="https://github.com/MatinSenPai/SenPaiScanner/releases"><img alt="Total Downloads" src="https://img.shields.io/github/downloads/MatinSenPai/SenPaiScanner/total?style=flat-square&logo=github&color=25b99a"></a>
+  <a href="https://github.com/MatinSenPai/SenPaiScanner/forks"><img alt="GitHub Forks" src="https://img.shields.io/github/forks/MatinSenPai/SenPaiScanner?style=flat-square&logo=github&color=5f76e8"></a>
   <a href="https://github.com/MatinSenPai/SenPaiScanner/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/MatinSenPai/SenPaiScanner?style=flat-square"></a>
   <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-5f76e8?style=flat-square"></a>
 </p>
