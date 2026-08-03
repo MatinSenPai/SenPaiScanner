@@ -1,121 +1,51 @@
-name: Release
+name: Release 1.0.0
 
 on:
   push:
     tags:
-      - "v*"
+      - "v1.0.0"
+  workflow_dispatch:
 
 permissions:
   contents: write
-  packages: write
-  id-token: write
 
 jobs:
-  release:
+  cli:
+    uses: ./.github/workflows/build-cli.yml
+    with:
+      version: 1.0.0
+
+  gui:
+    uses: ./.github/workflows/build-gui.yml
+    with:
+      version: 1.0.0
+
+  android:
+    uses: ./.github/workflows/build-android.yml
+    with:
+      version: 1.0.0
+    secrets: inherit
+
+  publish:
+    needs: [cli, gui, android]
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v5
         with:
-          fetch-depth: 0
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Install cosign
-        uses: sigstore/cosign-installer@v3
-
-      - name: Install syft
-        uses: anchore/sbom-action/download-syft@v0
-
-      - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@v6
-        with:
-          distribution: goreleaser
-          version: latest
-          args: release --clean
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          COSIGN_EXPERIMENTAL: "true"
-
-  build-android-release:
-    runs-on: ubuntu-latest
-    needs: release
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
-        with:
-          java-version: '17'
-          distribution: 'temurin'
-
-      - name: Decode Keystore
-        env:
-          ENCODED_STRING: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-        run: |
-          mkdir -p android/keystore
-          echo $ENCODED_STRING | base64 -di > android/keystore/release.keystore
-
-      - name: Build Go Mobile
-        run: |
-          go install golang.org/x/mobile/cmd/gomobile@latest
-          go install golang.org/x/mobile/cmd/gobind@latest
-          export PATH="$PATH:$(go env GOPATH)/bin"
-          go get -tool golang.org/x/mobile/cmd/gobind
-          gomobile init
-          chmod +x ./android/build_go_mobile.sh
-          ./android/build_go_mobile.sh
-
-      - name: Derive version from tag
-        run: |
-          TAG="${GITHUB_REF#refs/tags/v}"
-          IFS='.' read -r MAJOR MINOR PATCH <<< "$TAG"
-          VERSION_CODE=$((MAJOR * 10000 + MINOR * 100 + PATCH))
-          echo "ANDROID_VERSION_NAME=$TAG" >> "$GITHUB_ENV"
-          echo "ANDROID_VERSION_CODE=$VERSION_CODE" >> "$GITHUB_ENV"
-
-      - name: Build Signed Release APKs
-        working-directory: android
-        env:
-          ORG_GRADLE_PROJECT_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ORG_GRADLE_PROJECT_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          ORG_GRADLE_PROJECT_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-          ANDROID_VERSION_NAME: ${{ env.ANDROID_VERSION_NAME }}
-          ANDROID_VERSION_CODE: ${{ env.ANDROID_VERSION_CODE }}
-        run: |
-          chmod +x gradlew
-          ./gradlew :app:assembleRelease --stacktrace
-
-      - name: Prepare release files
-        run: |
-          mkdir -p release-artifacts
-          APP_NAME="SenPaiScanner"
-          VERSION="${ANDROID_VERSION_NAME}"
-
-          for apk in android/app/build/outputs/apk/release/*.apk; do
-            filename=$(basename "$apk")
-            if [[ "$filename" == "app-universal-release.apk" ]]; then
-              suffix="universal"
-            else
-              suffix=$(echo "$filename" | sed -E 's|^app-(.*)-release\.apk$|\1|')
-            fi
-            cp "$apk" "release-artifacts/${APP_NAME}-${VERSION}-${suffix}-release.apk"
-          done
-
-          ls -la release-artifacts
-
-      - name: Upload to GitHub Release
+          path: release-assets
+          merge-multiple: true
+      - name: Generate SHA-256 checksums
+        working-directory: release-assets
+        shell: bash
+        run: sha256sum * > SHA256SUMS.txt
+      - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: release-artifacts/*.apk
+          tag_name: v1.0.0
+          target_commitish: ${{ github.sha }}
+          name: SenPai Scanner v1.0.0
+          body_path: RELEASE_NOTES.md
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: release-assets/*

@@ -16,6 +16,11 @@ dist/
 build/
 bin/
 
+# Wails consumes this source icon to generate native Windows/macOS assets.
+!desktop/build/
+desktop/build/*
+!desktop/build/appicon.png
+
 # Go workspace files
 go.work
 go.work.sum
@@ -62,6 +67,7 @@ results/
 .env.local
 .env.*
 !.env.example
+android/keystore/
 
 # goreleaser
 dist/

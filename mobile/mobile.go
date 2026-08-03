@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	configexport "github.com/matinsenpai/senpaiscanner/internal/export"
 	"github.com/matinsenpai/senpaiscanner/internal/ipsrc"
 	"github.com/matinsenpai/senpaiscanner/internal/prober"
 	"github.com/matinsenpai/senpaiscanner/internal/result"
@@ -28,25 +29,32 @@ type Callback interface {
 }
 
 var (
-	mu         sync.Mutex
-	cancelScan context.CancelFunc
-	isRunning  bool
+	mu          sync.Mutex
+	cancelScan  context.CancelFunc
+	isRunning   bool
+	phase1Cache []*result.Result
 )
 
 type ScanConfig struct {
-	SourceType    string `json:"sourceType"`
-	SourceFile    string `json:"sourceFile"`
-	CountType     string `json:"countType"`
-	CustomCount   string `json:"customCount"`
-	WorkerType    string `json:"workerType"`
-	CustomWorkers string `json:"customWorkers"`
-	TimeoutType   string `json:"timeoutType"`
-	CustomTimeout string `json:"customTimeout"`
-	PortType      string `json:"portType"`
-	SelectedPorts []int  `json:"selectedPorts"`
-	ConfigURL     string `json:"configUrl"`
-	TopNType      string `json:"topNType"`
-	CustomTopN    string `json:"customTopN"`
+	SourceType    string  `json:"sourceType"`
+	SourceFile    string  `json:"sourceFile"`
+	CountType     string  `json:"countType"`
+	CustomCount   string  `json:"customCount"`
+	WorkerType    string  `json:"workerType"`
+	CustomWorkers string  `json:"customWorkers"`
+	TimeoutType   string  `json:"timeoutType"`
+	CustomTimeout string  `json:"customTimeout"`
+	PortType      string  `json:"portType"`
+	SelectedPorts []int   `json:"selectedPorts"`
+	ConfigURL     string  `json:"configUrl"`
+	TopNType      string  `json:"topNType"`
+	CustomTopN    string  `json:"customTopN"`
+	NeighborScan  bool    `json:"neighborScan"`
+	RequireWS     bool    `json:"requireWebSocket"`
+	MinSpeed      float64 `json:"minSpeed"`
+	SpeedURL      string  `json:"speedUrl"`
+	SpeedSize     int64   `json:"speedSize"`
+	UploadTest    bool    `json:"uploadTest"`
 }
 
 func StartScan(configJson string, callback Callback) {
@@ -59,6 +67,7 @@ func StartScan(configJson string, callback Callback) {
 		return
 	}
 	isRunning = true
+	phase1Cache = nil
 	mu.Unlock()
 
 	go runScan(configJson, callback)
@@ -184,6 +193,7 @@ func runScan(configJson string, callback Callback) {
 			probeCfg.WebSocketHost = xCfg.Host
 			probeCfg.WebSocketPath = xCfg.Path
 		}
+		probeCfg.RequireWebSocket = cfg.RequireWS
 		ports = []int{xCfg.Port}
 	} else {
 		ports = cfg.SelectedPorts
@@ -196,6 +206,7 @@ func runScan(configJson string, callback Callback) {
 			Timeout:            timeout,
 			SNI:                "speed.cloudflare.com",
 			InsecureSkipVerify: true,
+			RequireWebSocket:   cfg.RequireWS,
 		}
 	}
 
@@ -280,7 +291,7 @@ func runScan(configJson string, callback Callback) {
 	var pending int
 	neighborsQueued := 0
 
-	neighborEnabled := len(neighborNets) > 0 && !isConfigMode
+	neighborEnabled := cfg.NeighborScan && len(neighborNets) > 0 && !isConfigMode
 	neighborRadius := ipsrc.DefaultNeighborRadius
 	neighborPerHit := ipsrc.DefaultNeighborPerHit
 	neighborMaxTotal := ipsrc.DefaultNeighborMaxTotal
@@ -396,6 +407,9 @@ func runScan(configJson string, callback Callback) {
 				resMu.Lock()
 				phase1Results = append(phase1Results, r)
 				resMu.Unlock()
+				mu.Lock()
+				phase1Cache = append(phase1Cache, r)
+				mu.Unlock()
 				if callback != nil {
 					callback.OnResult(r.IP.String(), r.Port, int(r.Avg().Milliseconds()), r.Loss(), r.Colo, true, false, "", 0.0, false)
 				}
@@ -424,6 +438,9 @@ func runScan(configJson string, callback Callback) {
 			resMu.Lock()
 			phase1Results = append(phase1Results, r)
 			resMu.Unlock()
+			mu.Lock()
+			phase1Cache = append(phase1Cache, r)
+			mu.Unlock()
 			if callback != nil {
 				callback.OnResult(r.IP.String(), r.Port, int(r.Avg().Milliseconds()), r.Loss(), r.Colo, true, false, "", 0.0, false)
 			}
@@ -528,7 +545,14 @@ phase1Done:
 				break
 			}
 			swapped := xCfg.WithEndpoint(r.IP.String(), r.Port)
+			swapped.SpeedURL = cfg.SpeedURL
+			swapped.SpeedSize = cfg.SpeedSize
+			swapped.UploadTest = cfg.UploadTest
 			vr := mobileValidateConfig(ctx, swapped, 22*time.Second)
+			if vr.Success && cfg.MinSpeed > 0 && vr.Throughput*8/1_000_000 < cfg.MinSpeed {
+				vr.Success = false
+				vr.Error = fmt.Sprintf("speed below threshold (%.1f < %.1f Mbps)", vr.Throughput*8/1_000_000, cfg.MinSpeed)
+			}
 
 			atomic.AddInt32(&statsTested, 1)
 			atomic.AddInt32(&statsInFlight, -1)
@@ -569,4 +593,155 @@ phase1Done:
 		// Wait for callback goroutine to finish processing all results before OnFinished
 		callbackWg.Wait()
 	}
+}
+
+// StartSpeedTest measures every healthy Phase 1 endpoint retained from the
+// current session. It is intentionally separate from StartScan so Android can
+// stop a long scan and immediately test the green rows, matching the desktop UI.
+func StartSpeedTest(configJson string, callback Callback) {
+	mu.Lock()
+	if isRunning {
+		mu.Unlock()
+		if callback != nil {
+			callback.OnError("Stop the current scan before starting a speed test")
+		}
+		return
+	}
+	candidates := append([]*result.Result(nil), phase1Cache...)
+	if len(candidates) == 0 {
+		mu.Unlock()
+		if callback != nil {
+			callback.OnError("No healthy results are available for a speed test")
+		}
+		return
+	}
+	isRunning = true
+	mu.Unlock()
+
+	go runSpeedTest(configJson, candidates, callback)
+}
+
+func runSpeedTest(configJson string, candidates []*result.Result, callback Callback) {
+	defer func() {
+		mu.Lock()
+		isRunning = false
+		cancelScan = nil
+		mu.Unlock()
+		if callback != nil {
+			callback.OnFinished()
+		}
+	}()
+
+	var cfg ScanConfig
+	if err := json.Unmarshal([]byte(configJson), &cfg); err != nil {
+		if callback != nil {
+			callback.OnError(fmt.Sprintf("Failed to parse config: %v", err))
+		}
+		return
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	mu.Lock()
+	cancelScan = cancel
+	mu.Unlock()
+
+	sort.Slice(candidates, func(i, j int) bool { return candidates[i].Avg() < candidates[j].Avg() })
+	total := len(candidates)
+	if callback != nil {
+		callback.OnProgress(0, 0, 0, total, true)
+	}
+
+	configURL := strings.TrimSpace(cfg.ConfigURL)
+	if configURL != "" {
+		template, err := xraytest.ParseProxyURL(configURL)
+		if err != nil {
+			if callback != nil {
+				callback.OnError(fmt.Sprintf("Invalid Config URL: %v", err))
+			}
+			return
+		}
+		passed := 0
+		for index, candidate := range candidates {
+			if ctx.Err() != nil {
+				return
+			}
+			probe := template.WithEndpoint(candidate.IP.String(), candidate.Port)
+			probe.SpeedURL = cfg.SpeedURL
+			probe.SpeedSize = cfg.SpeedSize
+			probe.UploadTest = cfg.UploadTest
+			vr := mobileValidateConfig(ctx, probe, 22*time.Second)
+			if vr.Success && cfg.MinSpeed > 0 && vr.Throughput*8/1_000_000 < cfg.MinSpeed {
+				vr.Success = false
+				vr.Error = fmt.Sprintf("speed below threshold (%.1f < %.1f Mbps)", vr.Throughput*8/1_000_000, cfg.MinSpeed)
+			}
+			done := index + 1
+			if vr.Success {
+				passed++
+			}
+			if callback != nil {
+				callback.OnResult(candidate.IP.String(), candidate.Port, int(vr.Latency.Milliseconds()), 0, candidate.Colo, true, true, vr.Transport, vr.Throughput, vr.Success)
+				callback.OnProgress(done, passed, done-passed, total-done, true)
+			}
+		}
+		return
+	}
+
+	timeout := 10 * time.Second
+	if cfg.TimeoutType == "Custom" {
+		if ms, err := strconv.Atoi(cfg.CustomTimeout); err == nil && ms > 10_000 {
+			timeout = time.Duration(ms) * time.Millisecond
+		}
+	}
+	sampleBytes := cfg.SpeedSize
+	if sampleBytes <= 0 {
+		sampleBytes = 512 * 1024
+	}
+	base := prober.Config{
+		Mode: prober.ModeHTTP, Tries: 1, Timeout: timeout,
+		SNI: "speed.cloudflare.com", SpeedBytes: sampleBytes,
+		InsecureSkipVerify: true,
+	}
+	passed := 0
+	for index, candidate := range candidates {
+		if ctx.Err() != nil {
+			return
+		}
+		measured := prober.Probe(ctx, candidate.IP, base.WithPort(candidate.Port))
+		success := measured.IsHealthy() && measured.Throughput > 0
+		if success {
+			passed++
+		}
+		done := index + 1
+		if callback != nil {
+			callback.OnResult(candidate.IP.String(), candidate.Port, int(measured.Avg().Milliseconds()), measured.Loss(), candidate.Colo, true, true, "direct", measured.Throughput, success)
+			callback.OnProgress(done, passed, done-passed, total-done, true)
+		}
+	}
+}
+
+// GenerateConfigs returns a JSON export bundle that gomobile can bridge to
+// Kotlin without exposing Go slices or structs in the public API.
+func GenerateConfigs(configURL, endpointsText string) (string, error) {
+	template, err := xraytest.ParseProxyURL(configURL)
+	if err != nil {
+		return "", fmt.Errorf("invalid config URL: %w", err)
+	}
+	rawEndpoints := strings.Fields(endpointsText)
+	bundle, err := configexport.Generate(template, configexport.ParseEndpoints(rawEndpoints))
+	if err != nil {
+		return "", err
+	}
+	payload := struct {
+		Subscription string   `json:"subscription"`
+		ShareURLs    []string `json:"shareUrls"`
+		SingBox      string   `json:"singBox"`
+		Clash        string   `json:"clash"`
+		Count        int      `json:"count"`
+	}{bundle.Subscription, bundle.ShareURLs, bundle.SingBox, bundle.Clash, len(bundle.ShareURLs)}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+	return string(encoded), nil
 }

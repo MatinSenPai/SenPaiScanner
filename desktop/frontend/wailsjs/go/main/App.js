@@ -6,12 +6,24 @@ export function CopyText(arg1) {
   return window['go']['main']['App']['CopyText'](arg1);
 }
 
+export function ExportAllToDisk(arg1, arg2) {
+  return window['go']['main']['App']['ExportAllToDisk'](arg1, arg2);
+}
+
 export function GenerateConfigs(arg1, arg2) {
   return window['go']['main']['App']['GenerateConfigs'](arg1, arg2);
 }
 
 export function GetVersion() {
   return window['go']['main']['App']['GetVersion']();
+}
+
+export function Presets() {
+  return window['go']['main']['App']['Presets']();
+}
+
+export function RetryLastScan() {
+  return window['go']['main']['App']['RetryLastScan']();
 }
 
 export function SaveText(arg1, arg2) {
@@ -22,10 +34,10 @@ export function StartScan(arg1) {
   return window['go']['main']['App']['StartScan'](arg1);
 }
 
-export function StopScan() {
-  return window['go']['main']['App']['StopScan']();
+export function StartSpeedTest(arg1) {
+  return window['go']['main']['App']['StartSpeedTest'](arg1);
 }
 
-export function ValidateTopIPs(arg1, arg2) {
-  return window['go']['main']['App']['ValidateTopIPs'](arg1, arg2);
+export function StopScan() {
+  return window['go']['main']['App']['StopScan']();
 }

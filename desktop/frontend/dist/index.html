@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -7,259 +7,148 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <!-- Aurora backdrop -->
-  <div class="aurora" aria-hidden="true">
-    <div class="blob blob-a"></div>
-    <div class="blob blob-b"></div>
-    <div class="blob blob-c"></div>
-    <div class="grain"></div>
-  </div>
-
-  <div class="app">
-    <!-- ===== Sidebar ===== -->
-    <aside class="glass sidebar">
-      <div class="brand">
-        <div class="brand-mark">
-          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M13 2 3 14h7l-1 8 10-12h-7l1-8z"/>
-          </svg>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand" aria-label="SenPai Scanner">
+        <div class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32" fill="none"><path d="M5 22.5 12.2 9l4.1 7.1L20 10l7 12.5"/><path d="M5 25h22"/></svg>
         </div>
-        <div class="brand-text">
-          <strong>SenPai</strong>
-          <span>Scanner</span>
-        </div>
+        <div><strong>SenPai</strong><span>signal scanner</span></div>
       </div>
 
-      <nav class="nav">
-        <button class="nav-item active" data-tab="scan">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
-          <span>Scan</span>
-        </button>
-        <button class="nav-item" data-tab="results">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 3v18h18"/><path d="m7 14 4-4 3 3 5-6"/></svg>
-          <span>Results</span>
-        </button>
-        <button class="nav-item" data-tab="export">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M4 21h16"/></svg>
-          <span>Export</span>
-        </button>
+      <nav class="tabs" role="tablist" aria-label="Workspace">
+        <button class="tab active" id="tabScan" data-tab="scan" role="tab" aria-selected="true" aria-controls="panelScan">Scan</button>
+        <button class="tab" id="tabResults" data-tab="results" role="tab" aria-selected="false" aria-controls="panelResults">Results <span class="tab-count" id="resultsTabCount">0</span></button>
+        <button class="tab" id="tabExport" data-tab="export" role="tab" aria-selected="false" aria-controls="panelExport">Export <span class="tab-count" id="exportTabCount">0</span></button>
       </nav>
 
-      <div class="sidebar-foot">
-        <div class="version-chip" id="versionChip">v…</div>
+      <div class="network-id" id="ispChip" title="Detecting network…">
+        <span class="network-led"></span>
+        <span class="network-copy"><strong id="ispText">Detecting ISP…</strong><small id="networkDetail">public network</small></span>
       </div>
-    </aside>
+    </header>
 
-    <!-- ===== Main ===== -->
-    <main class="content">
-      <!-- SCAN TAB -->
-      <section class="tab-pane" id="tab-scan">
-        <header class="pane-head">
-          <h1>Find Cloudflare IPs</h1>
-          <p class="subtitle">Scans the MahsaNG Cloudflare pool with weighted random sampling</p>
-        </header>
+    <section class="session-rail" id="sessionRail" data-state="idle" aria-label="Current scan status">
+      <div class="session-state">
+        <span class="state-glyph" aria-hidden="true"></span>
+        <div><small>SESSION</small><strong id="phaseTitle">Ready for a new scan</strong><span id="phaseHint">Configure the target pool, then start.</span></div>
+      </div>
+      <div class="progress-zone">
+        <div class="progress-label"><span id="progressText">No active run</span><span id="progressPercent">0%</span></div>
+        <div class="progress-track" role="progressbar" aria-label="Scan progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="progressTrack"><div class="progress-fill" id="barFill"></div><div class="scan-sweep"></div></div>
+      </div>
+      <div class="rail-stats">
+        <div><span id="statTested">0</span><small>tested</small></div>
+        <div class="alive"><span id="statHealthy">0</span><small>green</small></div>
+        <div><span id="statFailed">0</span><small>failed</small></div>
+        <div class="speed"><span id="statPhase2">0 / —</span><small>speed</small></div>
+      </div>
+      <div class="rail-actions">
+        <button class="button danger" id="btnStop" disabled>Stop scan</button>
+      </div>
+    </section>
 
-        <div class="grid two-col">
-          <div class="glass card">
-            <div class="card-title">Scan parameters</div>
-            <div class="field">
-              <label>IP count</label>
-              <div class="seg" id="countSeg">
-                <button data-val="1000">1k</button>
-                <button data-val="5000" class="on">5k</button>
-                <button data-val="20000">20k</button>
-                <button data-val="0">Custom</button>
-              </div>
-              <input class="hidden" id="customCount" type="number" min="1" placeholder="e.g. 50000" />
-            </div>
-
-            <div class="field">
-              <label>Workers</label>
-              <div class="seg" id="workerSeg">
-                <button data-val="50" class="on">50</button>
-                <button data-val="100">100</button>
-                <button data-val="200">200</button>
-              </div>
-            </div>
-
-            <div class="field">
-              <label>Probe mode</label>
-              <div class="seg" id="modeSeg">
-                <button data-val="http" class="on">HTTP</button>
-                <button data-val="tls">TLS</button>
-                <button data-val="tcp">TCP</button>
-              </div>
-            </div>
-
-            <div class="field-row">
-              <div class="field">
-                <label>Timeout (s)</label>
-                <div class="seg" id="timeoutSeg">
-                  <button data-val="2">2</button>
-                  <button data-val="3">3</button>
-                  <button data-val="5" class="on">5</button>
-                </div>
-              </div>
-              <div class="field">
-                <label>Port</label>
-                <input id="portInput" type="number" value="443" />
-              </div>
-            </div>
-
-            <div class="field">
-              <label>SNI</label>
-              <input id="sniInput" type="text" value="speed.cloudflare.com" />
-            </div>
-
-            <div class="field">
-              <label>Colo filter (optional, comma separated)</label>
-              <input id="coloInput" type="text" placeholder="e.g. IKA, MHD" />
-            </div>
-
-            <div class="toggles">
-              <label class="toggle"><input type="checkbox" id="speedToggle" checked /><span></span>Speed test</label>
-              <label class="toggle"><input type="checkbox" id="wsToggle" checked /><span></span>Require WebSocket</label>
-            </div>
-          </div>
-
-          <div class="glass card">
-            <div class="card-title">Config URL (optional)</div>
-            <textarea id="configUrl" rows="3" placeholder="vless://… / trojan://… / vmess://…" spellcheck="false"></textarea>
-            <p class="hint">Paste your subscription config here to enable xray validation and config export.</p>
-
-            <div class="card-title card-title-spaced">Validation</div>
-            <div class="field-row">
-              <div class="field">
-                <label>Validate top</label>
-                <input id="topNInput" type="number" value="10" min="1" />
-              </div>
-              <div class="field">
-                <label>Timeout (s)</label>
-                <input id="valTimeoutInput" type="number" value="10" min="1" />
-              </div>
-            </div>
-
-            <div class="primary-actions">
-              <button class="btn primary" id="startBtn">
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M6 4l14 8-14 8z"/></svg>
-                <span id="startBtnLabel">Start scan</span>
-              </button>
-              <button class="btn ghost" id="stopBtn" disabled>
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
-                Stop
-              </button>
-              <button class="btn ghost" id="validateBtn" disabled>
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m5 13 4 4 10-10"/></svg>
-                Validate top IPs
-              </button>
-            </div>
-          </div>
+    <main class="workspace">
+      <section class="panel active" id="panelScan" data-panel="scan" role="tabpanel" aria-labelledby="tabScan">
+        <div class="page-intro">
+          <div><span class="eyebrow">NEW RUN</span><h1>Find usable Cloudflare endpoints</h1><p>Start with a reachability scan. Tunnel validation and speed testing stay optional.</p></div>
+          <div class="intro-actions"><button class="button ghost" id="btnRetry">Load & run last scan</button><button class="button primary" id="btnStart">Start scan <span aria-hidden="true">→</span></button></div>
         </div>
 
-        <div class="glass card stats-card" id="statsCard" style="display:none">
-          <div class="stat"><span class="stat-num" id="stTested">0</span><span class="stat-label">Tested</span></div>
-          <div class="stat"><span class="stat-num ok" id="stHealthy">0</span><span class="stat-label">Healthy</span></div>
-          <div class="stat"><span class="stat-num bad" id="stFailed">0</span><span class="stat-label">Failed</span></div>
-          <div class="stat"><span class="stat-num" id="stInFlight">0</span><span class="stat-label">In flight</span></div>
-          <div class="stat stat-wide"><div class="progress"><div class="progress-fill" id="progressFill"></div></div><span class="stat-label" id="progressLabel">0%</span></div>
+        <div class="setup-layout">
+          <section class="surface setup-primary" aria-labelledby="essentialsTitle">
+            <header class="surface-head"><div><span class="step-tag">01</span><h2 id="essentialsTitle">Scan essentials</h2></div><p>These settings define the first pass.</p></header>
+            <div class="form-grid">
+              <div class="field"><label>IP source</label><div class="seg" data-seg="ipMode"><button data-val="0" class="on">Random pool</button><button data-val="1">ips.txt</button></div><small>Random uses weighted Cloudflare IPv4 ranges.</small></div>
+              <div class="field"><label>Target count</label><div class="seg" data-seg="count" data-preset="count"></div><input class="input hidden" id="countCustom" inputmode="numeric" placeholder="Custom count" /></div>
+              <div class="field"><label>Concurrent workers</label><div class="seg" data-seg="workers" data-preset="workers"></div><input class="input hidden" id="workersCustom" inputmode="numeric" placeholder="Custom workers" /></div>
+              <div class="field"><label>Probe timeout</label><div class="seg" data-seg="timeout" data-preset="timeout"></div><input class="input hidden" id="timeoutCustom" placeholder="For example 4s" /></div>
+              <div class="field full"><label>Ports</label><div class="chips" id="portChips"></div><small>“Config” uses the port from the share URL, or 443 without one.</small></div>
+            </div>
+
+            <div class="switch-list">
+              <label class="switch-row"><span><strong>Require WebSocket response</strong><small>Stricter green status for WS configurations.</small></span><button class="toggle on" id="toggleRequireWS" role="switch" aria-checked="true"><span></span></button></label>
+              <label class="switch-row"><span><strong>Scan neighbors after a green hit</strong><small>Optional. Adds nearby addresses and can extend the run beyond the target count.</small></span><button class="toggle" id="toggleNeighbors" role="switch" aria-checked="false"><span></span></button></label>
+            </div>
+          </section>
+
+          <section class="surface validation-setup" aria-labelledby="validationTitle">
+            <header class="surface-head"><div><span class="step-tag">02</span><h2 id="validationTitle">Tunnel speed test</h2></div><span class="optional-tag">OPTIONAL</span></header>
+            <p class="section-copy">Add a share URL to automatically validate the best green endpoints through xray when Phase 1 finishes.</p>
+            <div class="field full"><label for="configUrl">VLESS / Trojan / VMess URL</label><textarea class="input mono" id="configUrl" rows="3" placeholder="Paste a share URL, or leave this empty for reachability only"></textarea></div>
+            <details class="advanced">
+              <summary>Speed test controls <span>Top N, sample size, threshold</span></summary>
+              <div class="form-grid compact-grid">
+                <div class="field"><label>Validate top</label><div class="seg" data-seg="topN" data-preset="topN"></div><input class="input hidden" id="topNCustom" inputmode="numeric" placeholder="Custom top N" /></div>
+                <div class="field"><label>Minimum speed</label><div class="seg" data-seg="minSpeed" data-preset="minSpeed"></div><input class="input hidden" id="minSpeedCustom" inputmode="decimal" placeholder="Custom Mbps" /></div>
+                <div class="field full"><label for="speedUrl">Download URL</label><input class="input" id="speedUrl" placeholder="Default: speed.cloudflare.com" /></div>
+                <div class="field"><label>Sample size</label><div class="seg" data-seg="speedSize" data-preset="speedSize"></div><input class="input hidden" id="speedSizeCustom" inputmode="numeric" placeholder="Custom MB" /></div>
+                <label class="switch-row compact"><span><strong>Upload sample</strong><small>Also measure upload throughput.</small></span><button class="toggle" id="toggleUpload" role="switch" aria-checked="false"><span></span></button></label>
+              </div>
+            </details>
+          </section>
         </div>
 
-        <div class="glass card results-card" id="resultsCard" style="display:none">
-          <div class="card-title row-title">
-            Live results
-            <span class="pill" id="scanStatePill">idle</span>
-          </div>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr><th>IP</th><th>Port</th><th>Colo</th><th>Avg (ms)</th><th>Min (ms)</th><th>Loss</th><th>Speed</th><th>Status</th></tr>
-              </thead>
-              <tbody id="resultsBody"></tbody>
-            </table>
-          </div>
-        </div>
+        <div class="run-footer"><div><strong>Results stream to disk while scanning.</strong><span id="livePathText">The live file path appears after the run starts.</span></div><button class="button primary large" id="btnStartBottom">Start scan <span aria-hidden="true">→</span></button></div>
       </section>
 
-      <!-- RESULTS TAB -->
-      <section class="tab-pane hidden" id="tab-results">
-        <header class="pane-head">
-          <h1>Scan results</h1>
-          <p class="subtitle">Healthy Cloudflare edges found by the scanner</p>
-        </header>
-
-        <div class="glass card results-card">
-          <div class="card-title row-title">
-            Healthy endpoints
-            <span class="pill good" id="healthyCountPill">0 healthy</span>
-          </div>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr><th>IP</th><th>Port</th><th>Colo</th><th>Avg (ms)</th><th>Min (ms)</th><th>Loss</th><th>Speed</th></tr>
-              </thead>
-              <tbody id="healthyBody"></tbody>
-            </table>
-          </div>
+      <section class="panel" id="panelResults" data-panel="results" role="tabpanel" aria-labelledby="tabResults" hidden>
+        <div class="page-intro results-intro">
+          <div><span class="eyebrow">LIVE WORKBENCH</span><h1>Results</h1><p>Filter, copy, and inspect green endpoints without waiting for the scan to finish.</p></div>
+          <div class="live-file" id="livePathPill" role="button" tabindex="0" title="Copy live results path"><small>LIVE FILE</small><span>Not created yet</span></div>
         </div>
 
-        <div class="glass card results-card">
-          <div class="card-title row-title">
-            xray validation
-            <span class="pill" id="valStatePill">idle</span>
+        <section class="surface result-surface">
+          <div class="result-commandbar">
+            <div class="filter-group" role="group" aria-label="Result filter"><button class="filter active" data-filter="healthy">Green <span id="greenFilterCount">0</span></button><button class="filter" data-filter="all">All <span id="allFilterCount">0</span></button></div>
+            <div class="command-actions">
+              <button class="button" id="btnCopyGreen" disabled>Copy all green</button>
+              <button class="button" id="btnCopyTop20" disabled>Copy top 20 IPs</button>
+              <button class="button signal" id="btnSpeedGreen" disabled>Speed test green results</button>
+            </div>
           </div>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr><th>IP</th><th>Port</th><th>Latency</th><th>Download</th><th>Upload</th><th>Status</th></tr>
-              </thead>
-              <tbody id="validationBody"></tbody>
-            </table>
+          <div class="table-tools"><label class="search"><span aria-hidden="true">⌕</span><input id="resultSearch" placeholder="Filter endpoint or colo" /></label><div class="sort-row" id="sortRow"><span>Sort</span><button class="sort active" data-sort="avg">Latency</button><button class="sort" data-sort="loss">Loss</button><button class="sort" data-sort="jitter">Jitter</button><button class="sort" data-sort="colo">Colo</button><button class="sort" data-sort="speed">Speed</button></div></div>
+          <div class="table-wrap primary-table">
+            <table class="data-table"><thead><tr><th>Endpoint</th><th>Colo</th><th class="num">Latency</th><th class="num">Loss</th><th class="num">Jitter</th><th class="num">Direct speed</th><th>Status</th></tr></thead><tbody id="resultsBody"></tbody></table>
+            <div class="empty-state" id="resultsEmpty"><span class="empty-radar" aria-hidden="true"></span><strong>No green endpoints yet</strong><p>Start a scan, then keep this tab open. Copy actions become available immediately.</p></div>
           </div>
-        </div>
+          <p class="table-note" id="resultLimitNote"></p>
+        </section>
+
+        <section class="surface speed-surface" id="speedResultsSection">
+          <header class="surface-head"><div><span class="step-tag">02</span><h2>Speed test results</h2></div><span class="result-badge" id="speedResultBadge">0 tested</span></header>
+          <div class="table-wrap speed-table-wrap"><table class="data-table"><thead><tr><th>Endpoint</th><th>Route</th><th class="num">Download</th><th class="num">Upload</th><th class="num">Latency</th><th>Status</th><th>Detail</th></tr></thead><tbody id="validationBody"></tbody></table><div class="empty-state compact-empty" id="speedEmpty"><strong>No speed test has run</strong><p>Stop at any time, then test every green result with the button above.</p></div></div>
+        </section>
       </section>
 
-      <!-- EXPORT TAB -->
-      <section class="tab-pane hidden" id="tab-export">
-        <header class="pane-head">
-          <h1>Export configs</h1>
-          <p class="subtitle">One template config + many working IPs → full config pack</p>
-        </header>
+      <section class="panel" id="panelExport" data-panel="export" role="tabpanel" aria-labelledby="tabExport" hidden>
+        <div class="page-intro"><div><span class="eyebrow">HANDOFF</span><h1>Export</h1><p>Raw green IPs and generated client configurations live here, away from scan controls.</p></div></div>
 
-        <div class="glass card">
-          <div class="card-title row-title">
-            Working endpoints
-            <span class="pill good" id="exportCountPill">0</span>
+        <section class="surface quick-export">
+          <header class="surface-head"><div><span class="step-tag">A</span><h2>Raw endpoints</h2></div><span class="result-badge" id="rawExportCount">0 green</span></header>
+          <div class="quick-export-grid">
+            <div><strong>All green endpoints</strong><p>One <code>IP:port</code> per line, available during scanning.</p><div class="button-row"><button class="button" id="btnCopyGreenExport" disabled>Copy endpoints</button><button class="button" id="btnSaveGreen" disabled>Save .txt</button></div></div>
+            <div><strong>Top 20 IPs</strong><p>Unique IPs ranked by health and latency.</p><div class="button-row"><button class="button" id="btnCopyTop20Export" disabled>Copy top 20</button></div></div>
           </div>
-          <div class="endpoint-list" id="endpointList"><p class="empty">No working endpoints yet — run a scan first.</p></div>
-        </div>
+        </section>
 
-        <div class="grid two-col">
-          <div class="glass card">
-            <div class="card-title">Subscription URLs</div>
-            <p class="hint">One vless:// link per IP — paste directly into your client.</p>
-            <pre class="code-box" id="subPreview"></pre>
-            <div class="btn-row">
-              <button class="btn ghost" id="copySubBtn">Copy</button>
-              <button class="btn ghost" id="saveSubBtn">Save .txt</button>
-            </div>
+        <section class="surface config-export">
+          <header class="surface-head"><div><span class="step-tag">B</span><h2>Client configurations</h2></div><div class="button-row"><button class="button" id="btnBuildExport" disabled>Generate from speed-tested endpoints</button><button class="button" id="btnExportDisk" disabled>Save all beside app</button></div></header>
+          <div class="export-callout" id="exportCallout"><strong>Run a tunnel speed test first.</strong><span>A share URL and at least one working endpoint are required to generate client configs.</span></div>
+          <div class="export-grid">
+            <article class="export-card"><header><div><span>SUB</span><strong>Subscription</strong></div><small id="subCount">empty</small></header><textarea class="input mono" id="exportSub" rows="7" readonly></textarea><div class="button-row"><button class="button small" id="btnCopySub">Copy</button><button class="button small" id="btnSaveSub">Save</button></div></article>
+            <article class="export-card"><header><div><span>JSON</span><strong>sing-box</strong></div><small>outbounds</small></header><textarea class="input mono" id="exportSingbox" rows="7" readonly></textarea><div class="button-row"><button class="button small" id="btnCopySingbox">Copy</button><button class="button small" id="btnSaveSingbox">Save</button></div></article>
+            <article class="export-card"><header><div><span>YAML</span><strong>Clash</strong></div><small>proxies</small></header><textarea class="input mono" id="exportClash" rows="7" readonly></textarea><div class="button-row"><button class="button small" id="btnCopyClash">Copy</button><button class="button small" id="btnSaveClash">Save</button></div></article>
           </div>
-
-          <div class="glass card">
-            <div class="card-title">Sing-box / Clash</div>
-            <div class="btn-row">
-              <button class="btn ghost" id="copySbBtn">Copy sing-box JSON</button>
-              <button class="btn ghost" id="saveSbBtn">Save .json</button>
-              <button class="btn ghost" id="copyClashBtn">Copy Clash YAML</button>
-              <button class="btn ghost" id="saveClashBtn">Save .yaml</button>
-            </div>
-            <pre class="code-box code-box-sm" id="sbPreview"></pre>
-          </div>
-        </div>
+          <p class="export-note" id="exportNote"></p>
+        </section>
       </section>
     </main>
+
+    <footer class="app-footer"><span id="versionText">v0.8.0</span><span>SenPai Scanner · local-first network utility</span></footer>
   </div>
 
-  <div class="toast" id="toast"></div>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <script src="app.js"></script>
 </body>
 </html>

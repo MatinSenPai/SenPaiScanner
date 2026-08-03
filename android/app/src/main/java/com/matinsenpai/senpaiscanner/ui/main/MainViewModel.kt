@@ -1,41 +1,37 @@
 package com.matinsenpai.senpaiscanner.ui.main
 
 import androidx.lifecycle.ViewModel
+import com.matinsenpai.senpaiscanner.mobile.Callback
+import com.matinsenpai.senpaiscanner.mobile.Mobile
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-import com.matinsenpai.senpaiscanner.mobile.Callback
-import com.matinsenpai.senpaiscanner.mobile.Mobile
 
 @Serializable
 data class ScanConfig(
-    // Source
     val sourceType: String = "Random",
     val sourceFile: String = "",
-
-    // Count
     val countType: String = "5000",
     val customCount: String = "",
-    
-    // Workers
     val workerType: String = "50- default (restricted net)",
     val customWorkers: String = "",
-
-    // Timeout
     val timeoutType: String = "5s - default (restricted net)",
     val customTimeout: String = "",
-
-    // Ports
-    val portType: String = "Config", // "Config" or "CustomPorts"
-    val selectedPorts: Set<Int> = emptySet(),
+    val portType: String = "Config",
+    val selectedPorts: Set<Int> = setOf(443),
     val configUrl: String = "",
-
-    // Top N
     val topNType: String = "50",
-    val customTopN: String = ""
+    val customTopN: String = "",
+    val neighborScan: Boolean = false,
+    val requireWebSocket: Boolean = true,
+    val minSpeed: Double = 0.0,
+    val speedUrl: String = "",
+    val speedSize: Long = 524_288,
+    val uploadTest: Boolean = false,
 )
 
 data class IpResult(
@@ -48,84 +44,198 @@ data class IpResult(
     val isPhase2: Boolean = false,
     val phase2Type: String = "",
     val phase2Speed: Double = 0.0,
-    val phase2Status: Boolean = false
+    val phase2Status: Boolean = false,
 )
+
+@Serializable
+data class ExportBundle(
+    val subscription: String,
+    val shareUrls: List<String>,
+    val singBox: String,
+    val clash: String,
+    val count: Int,
+)
+
+enum class SessionPhase { IDLE, SCANNING, STOPPING, SPEED_TESTING }
 
 data class ScanUiState(
-    val isRunning: Boolean = false,
-    val tested: Int = 0,
-    val healthy: Int = 0,
-    val failed: Int = 0,
-    val inFlight: Int = 0,
-    val isPhase2: Boolean = false,
-    val totalPhase2: Int = 0,
+    val phase: SessionPhase = SessionPhase.IDLE,
+    val phase1Tested: Int = 0,
+    val phase1Healthy: Int = 0,
+    val phase1Failed: Int = 0,
+    val phase1InFlight: Int = 0,
+    val speedDone: Int = 0,
+    val speedPassed: Int = 0,
+    val speedFailed: Int = 0,
+    val speedTotal: Int = 0,
     val results: List<IpResult> = emptyList(),
+    val config: ScanConfig = ScanConfig(),
+    val exportBundle: ExportBundle? = null,
     val error: String? = null,
-    val config: ScanConfig = ScanConfig()
-)
+) {
+    val isRunning: Boolean get() = phase != SessionPhase.IDLE
+    val greenResults: List<IpResult>
+        get() = results.filter { !it.isPhase2 && it.isHealthy }
+    val speedResults: List<IpResult>
+        get() = results.filter { it.isPhase2 }
+}
 
 class MainViewModel : ViewModel() {
+    private val json = Json { ignoreUnknownKeys = true }
     private val _uiState = MutableStateFlow(ScanUiState())
     val uiState: StateFlow<ScanUiState> = _uiState.asStateFlow()
 
     private val scanCallback = object : Callback {
-        override fun onProgress(tested: Long, healthy: Long, failed: Long, inFlight: Long, isPhase2: Boolean) {
-            val current = _uiState.value
-            var total = current.totalPhase2
-            if (isPhase2 && total == 0 && tested.toInt() == 0) {
-                total = inFlight.toInt()
+        override fun onProgress(
+            tested: Long,
+            healthy: Long,
+            failed: Long,
+            inFlight: Long,
+            isPhase2: Boolean,
+        ) {
+            _uiState.update { current ->
+                if (isPhase2) {
+                    val total = maxOf(current.speedTotal, tested.toInt() + inFlight.toInt())
+                    current.copy(
+                        speedDone = tested.toInt(),
+                        speedPassed = healthy.toInt(),
+                        speedFailed = failed.toInt(),
+                        speedTotal = total,
+                    )
+                } else {
+                    current.copy(
+                        phase1Tested = tested.toInt(),
+                        phase1Healthy = healthy.toInt(),
+                        phase1Failed = failed.toInt(),
+                        phase1InFlight = inFlight.toInt(),
+                    )
+                }
             }
-            _uiState.value = current.copy(
-                tested = tested.toInt(),
-                healthy = healthy.toInt(),
-                failed = failed.toInt(),
-                inFlight = inFlight.toInt(),
-                isPhase2 = isPhase2,
-                totalPhase2 = total
-            )
         }
 
-        override fun onResult(ip: String, port: Long, latencyMs: Long, loss: Double, colo: String, isHealthy: Boolean, isPhase2: Boolean, phase2Type: String, phase2Speed: Double, phase2Status: Boolean) {
-            val res = IpResult(ip, port.toInt(), latencyMs.toInt(), loss, colo, isHealthy, isPhase2, phase2Type, phase2Speed, phase2Status)
-            val newList = _uiState.value.results.toMutableList()
-            newList.add(0, res)
-            _uiState.value = _uiState.value.copy(results = newList)
+        override fun onResult(
+            ip: String,
+            port: Long,
+            latencyMs: Long,
+            loss: Double,
+            colo: String,
+            isHealthy: Boolean,
+            isPhase2: Boolean,
+            phase2Type: String,
+            phase2Speed: Double,
+            phase2Status: Boolean,
+        ) {
+            val incoming = IpResult(
+                ip = ip,
+                port = port.toInt(),
+                latencyMs = latencyMs.toInt(),
+                loss = loss,
+                colo = colo,
+                isHealthy = isHealthy,
+                isPhase2 = isPhase2,
+                phase2Type = phase2Type,
+                phase2Speed = phase2Speed,
+                phase2Status = phase2Status,
+            )
+            _uiState.update { current ->
+                val withoutPrevious = current.results.filterNot {
+                    it.ip == incoming.ip && it.port == incoming.port && it.isPhase2 == incoming.isPhase2
+                }
+                current.copy(results = listOf(incoming) + withoutPrevious, exportBundle = null)
+            }
         }
 
         override fun onFinished() {
-            _uiState.value = _uiState.value.copy(isRunning = false)
+            _uiState.update { it.copy(phase = SessionPhase.IDLE, phase1InFlight = 0) }
         }
 
         override fun onError(err: String) {
-            _uiState.value = _uiState.value.copy(isRunning = false, error = err)
+            _uiState.update { it.copy(phase = SessionPhase.IDLE, phase1InFlight = 0, error = err) }
         }
     }
 
     fun updateConfig(config: ScanConfig) {
-        _uiState.value = _uiState.value.copy(config = config)
+        _uiState.update { it.copy(config = config, exportBundle = null) }
     }
 
-    fun toggleScan() {
-        if (Mobile.isRunning()) {
-            Mobile.stopScan()
-            _uiState.value = _uiState.value.copy(isRunning = false)
-        } else {
-            val jsonConfig = Json.encodeToString(_uiState.value.config)
-            _uiState.value = _uiState.value.copy(
-                isRunning = true,
-                tested = 0,
-                healthy = 0,
-                failed = 0,
-                inFlight = 0,
-                totalPhase2 = 0,
-                results = emptyList(),
-                error = null
-            )
-            Mobile.startScan(jsonConfig, scanCallback)
+    fun startScan() {
+        val current = _uiState.value
+        if (current.isRunning) return
+        _uiState.value = current.copy(
+            phase = SessionPhase.SCANNING,
+            phase1Tested = 0,
+            phase1Healthy = 0,
+            phase1Failed = 0,
+            phase1InFlight = 0,
+            speedDone = 0,
+            speedPassed = 0,
+            speedFailed = 0,
+            speedTotal = 0,
+            results = emptyList(),
+            exportBundle = null,
+            error = null,
+        )
+        Mobile.startScan(json.encodeToString(current.config), scanCallback)
+    }
+
+    fun stop() {
+        if (!_uiState.value.isRunning) return
+        _uiState.update { it.copy(phase = SessionPhase.STOPPING) }
+        Mobile.stopScan()
+    }
+
+    fun startSpeedTest() {
+        val current = _uiState.value
+        if (current.isRunning || current.greenResults.isEmpty()) return
+        _uiState.value = current.copy(
+            phase = SessionPhase.SPEED_TESTING,
+            speedDone = 0,
+            speedPassed = 0,
+            speedFailed = 0,
+            speedTotal = current.greenResults.size,
+            results = current.results.filterNot { it.isPhase2 },
+            exportBundle = null,
+            error = null,
+        )
+        Mobile.startSpeedTest(json.encodeToString(current.config), scanCallback)
+    }
+
+    fun generateExports() {
+        val current = _uiState.value
+        val endpoints = current.speedResults
+            .filter { it.phase2Status }
+            .sortedBy { it.latencyMs }
+            .map { "${it.ip}:${it.port}" }
+            .distinct()
+        if (current.config.configUrl.isBlank()) {
+            _uiState.update { it.copy(error = "Add a VLESS, Trojan, or VMess URL in Scan first") }
+            return
+        }
+        if (endpoints.isEmpty()) {
+            _uiState.update { it.copy(error = "Run Speed Test and keep at least one passing endpoint first") }
+            return
+        }
+        runCatching {
+            val payload = Mobile.generateConfigs(current.config.configUrl, endpoints.joinToString("\n"))
+            json.decodeFromString<ExportBundle>(payload)
+        }.onSuccess { bundle ->
+            _uiState.update { it.copy(exportBundle = bundle, error = null) }
+        }.onFailure { failure ->
+            _uiState.update { it.copy(error = failure.message ?: "Export failed") }
         }
     }
-    
+
     fun dismissError() {
-        _uiState.value = _uiState.value.copy(error = null)
+        _uiState.update { it.copy(error = null) }
     }
+}
+
+fun healthyEndpoints(results: List<IpResult>, limit: Int = 0): List<IpResult> {
+    val unique = results
+        .asSequence()
+        .filter { !it.isPhase2 && it.isHealthy }
+        .sortedBy { it.latencyMs }
+        .distinctBy { "${it.ip}:${it.port}" }
+        .toList()
+    return if (limit > 0) unique.take(limit) else unique
 }

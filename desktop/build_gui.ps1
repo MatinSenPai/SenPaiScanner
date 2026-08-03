@@ -1,47 +1,66 @@
-#!/usr/bin/env pwsh
-# Build the SenPaiScanner desktop GUI (Wails v2) for all supported platforms.
-# Usage:  .\build_gui.ps1              # build for this machine only
-#         .\build_gui.ps1 -All        # cross-compile all desktop targets
-#         .\build_gui.ps1 -Platform windows/amd64
+# =============================================================================
+#  SenPai Scanner — desktop GUI build script (Wails v2)
+#
+#  Usage:
+#    .\build_gui.ps1                      # windows/amd64 only
+#    .\build_gui.ps1 -All                 # all common platforms (non-Windows
+#                                         # targets are best-effort: cross-
+#                                         # compiling webview targets needs the
+#                                         # target OS toolchain)
+#    .\build_gui.ps1 -Platform windows/arm64
+#    .\build_gui.ps1 -Version v1.2.3      # override version tag
+#
+#  The script must live in desktop/ next to wails.json; wails build is run
+#  from here. Output is copied to ../dist next to the CLI binaries.
+# =============================================================================
 
 param(
+    [string]$Version = "1.0.0",
     [switch]$All,
     [string]$Platform = ""
 )
 
 $ErrorActionPreference = "Continue"
+Set-Location -Path $PSScriptRoot   # desktop/ — wails.json lives here
 
-$Wails = "C:\Users\khmja\go\bin\wails.exe"
-if (!(Test-Path $Wails)) {
-    $Wails = (Get-Command wails -ErrorAction SilentlyContinue).Source
+# --- locate wails -----------------------------------------------------------
+$Wails = (Get-Command wails -ErrorAction SilentlyContinue).Source
+if (!$Wails -and (Test-Path "$env:USERPROFILE\go\bin\wails.exe")) {
+    $Wails = "$env:USERPROFILE\go\bin\wails.exe"
 }
 if (!$Wails) {
-    Write-Host "wails CLI not found. Install it with:  go install github.com/wailsapp/wails/v2/cmd/wails@latest" -ForegroundColor Red
+    Write-Host "wails CLI not found. Install it with:" -ForegroundColor Red
+    Write-Host "  go install github.com/wailsapp/wails/v2/cmd/wails@latest" -ForegroundColor Yellow
     exit 1
 }
 
-$DesktopDir = Join-Path $PSScriptRoot "desktop"
-$OutDir     = Join-Path $PSScriptRoot "dist"
-if (!(Test-Path $OutDir)) { New-Item -ItemType Directory -Path $OutDir | Out-Null }
+# --- version info (same fields as the root build.ps1) -----------------------
+if (!$Version) { $Version = "1.0.0" }
+$Commit    = ((git rev-parse --short HEAD 2>$null) -replace "`n", "")
+$BuildDate = (Get-Date -Format "yyyy-MM-dd")
+$LdFlags   = "-s -w " +
+    "-X github.com/matinsenpai/senpaiscanner/pkg/version.Version=$Version " +
+    "-X github.com/matinsenpai/senpaiscanner/pkg/version.Commit=$Commit " +
+    "-X github.com/matinsenpai/senpaiscanner/pkg/version.BuildDate=$BuildDate " +
+    "-X github.com/matinsenpai/senpaiscanner/pkg/version.BuiltBy=wails-local"
 
+# --- targets ----------------------------------------------------------------
 if ($Platform) {
     $targets = @($Platform)
 } elseif ($All) {
-    $targets = @(
-        "windows/amd64",
-        "linux/amd64",
-        "linux/arm64",
-        "darwin/amd64",
-        "darwin/arm64"
-    )
+    $targets = @("windows/amd64", "linux/amd64", "darwin/amd64", "darwin/arm64")
 } else {
-    $targets = @((& $Wails doctor 2>$null | Select-String -Pattern "OS\s*:\s*(.+)").Matches.Groups[1].Value.Trim())
-    if (!$targets) { $targets = @("windows/amd64") }
+    $targets = @("windows/amd64")
 }
 
+$OutDir = Join-Path $PSScriptRoot "..\dist"
+if (!(Test-Path $OutDir)) { New-Item -ItemType Directory -Path $OutDir | Out-Null }
+
 Write-Host ""
-Write-Host "  SenPaiScanner GUI  —  wails $(& $Wails version 2>$null | Select-String -Pattern "v?\d+\.\d+\.\d+" | Select-Object -First 1)" -ForegroundColor Cyan
-Write-Host "  Building $($targets.Count) target(s) ..." -ForegroundColor Cyan
+Write-Host "  SenPai Scanner — GUI build" -ForegroundColor Cyan
+Write-Host "  version  : $Version" -ForegroundColor Cyan
+Write-Host "  commit   : $Commit" -ForegroundColor Cyan
+Write-Host "  targets  : $($targets -join ', ')" -ForegroundColor Cyan
 Write-Host ""
 
 $ok  = 0
@@ -49,10 +68,19 @@ $err = 0
 
 foreach ($t in $targets) {
     $outName = "senpaiscanner-gui-" + ($t -replace "/", "-")
-    if ($t -like "windows/*" -and !$outName.EndsWith(".exe")) { $outName += ".exe" }
+    if ($t -like "windows/*") { $outName += ".exe" }
     Write-Host -NoNewline "  building $($t.PadRight(20))  ->  dist/$outName  "
 
-    & $Wails build -clean -platform $t -o $outName 2>&1 | Out-Null
+    # Wails only regenerates the native Windows icon when icon.ico is absent.
+    # Treat it as generated output so build/appicon.png is always authoritative.
+    if ($t -like "windows/*") {
+        $nativeIcon = Join-Path $PSScriptRoot "build\windows\icon.ico"
+        if (Test-Path -LiteralPath $nativeIcon) {
+            Remove-Item -LiteralPath $nativeIcon -Force
+        }
+    }
+
+    & $Wails build -clean -platform $t -ldflags $LdFlags -o $outName 2>&1 | Out-Null
     if ($LASTEXITCODE -eq 0) {
         $bin = Get-ChildItem -Path (Join-Path $PSScriptRoot "build\bin") -Filter "$outName*" | Select-Object -First 1
         if ($bin) {

@@ -4,14 +4,20 @@ import {main} from '../models';
 
 export function CopyText(arg1:string):Promise<void>;
 
+export function ExportAllToDisk(arg1:string,arg2:Array<string>):Promise<string>;
+
 export function GenerateConfigs(arg1:string,arg2:Array<string>):Promise<main.ExportBundle>;
 
 export function GetVersion():Promise<string>;
+
+export function Presets():Promise<main.PresetData>;
+
+export function RetryLastScan():Promise<main.ScanParams>;
 
 export function SaveText(arg1:string,arg2:string):Promise<string>;
 
 export function StartScan(arg1:main.ScanParams):Promise<void>;
 
-export function StopScan():Promise<void>;
+export function StartSpeedTest(arg1:main.ScanParams):Promise<void>;
 
-export function ValidateTopIPs(arg1:main.ValidationParams,arg2:Array<main.ScanResult>):Promise<void>;
+export function StopScan():Promise<void>;

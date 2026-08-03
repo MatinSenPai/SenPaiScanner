@@ -2,11 +2,24 @@ package com.matinsenpai.senpaiscanner.theme
 
 import androidx.compose.ui.graphics.Color
 
-val SenPaiOrange = Color(0xFFF6821F)
-val SenPaiDarkBackground = Color(0xFF121212)
-val SenPaiDarkSurface = Color(0xFF1E1E1E)
-val SenPaiSuccess = Color(0xFF4CAF50)
-val SenPaiError = Color(0xFFE53935)
-val SenPaiTextPrimary = Color(0xFFE0E0E0)
-val SenPaiTextSecondary = Color(0xFFA0A0A0)
-val SenPaiPrimary = SenPaiOrange
+val SignalBackground = Color(0xFF050B12)
+val SignalPanel = Color(0xFF091521)
+val SignalPanelRaised = Color(0xFF0D1D2B)
+val SignalBorder = Color(0xFF1B3445)
+val SignalGrid = Color(0xFF173449)
+val SignalCyan = Color(0xFF28D7F4)
+val SignalGreen = Color(0xFF45E39A)
+val SignalAmber = Color(0xFFF5B942)
+val SignalDanger = Color(0xFFFF5C72)
+val SignalText = Color(0xFFE7F2F8)
+val SignalMuted = Color(0xFF8198A8)
+
+// Compatibility aliases for the small legacy sample screen still in-tree.
+val SenPaiOrange = SignalCyan
+val SenPaiDarkBackground = SignalBackground
+val SenPaiDarkSurface = SignalPanel
+val SenPaiSuccess = SignalGreen
+val SenPaiError = SignalDanger
+val SenPaiTextPrimary = SignalText
+val SenPaiTextSecondary = SignalMuted
+val SenPaiPrimary = SignalCyan

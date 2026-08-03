@@ -230,7 +230,7 @@ type AppModel struct {
 	configURL      string
 	configCountIdx int // index into configCountValues
 	configTopNIdx  int // index into configTopNValues
-	configSetupRow int // 0=source, 1=count, 2=workers, 3=timeout, 4=ports
+	configSetupRow int // 0=source, 1=count, 2=workers, 3=timeout, 4=ports, 5=WebSocket, 6=neighbors
 	// quick-scan-style pickers for Phase 1
 	configWorkersIdx    int
 	configTimeoutIdx    int
@@ -259,6 +259,7 @@ type AppModel struct {
 	configSpeedSizeIdx    int
 	configSpeedSizeCustom string
 	configUploadTest      bool
+	configNeighborScan    bool
 	ispInfo               string
 
 	// shared
@@ -311,6 +312,7 @@ type SavedConfig struct {
 	SpeedSizeCustom string `json:"speed_size_custom"`
 	UploadTest      bool   `json:"upload_test"`
 	RequireWS       bool   `json:"require_ws"`
+	NeighborScan    bool   `json:"neighbor_scan"`
 }
 
 // AppConfig wraps SavedConfig to allow for future settings.
@@ -395,6 +397,7 @@ func (m *AppModel) applySavedConfig(cfg SavedConfig) {
 	m.configSpeedSizeIdx = cfg.SpeedSizeIdx
 	m.configSpeedSizeCustom = cfg.SpeedSizeCustom
 	m.configUploadTest = cfg.UploadTest
+	m.configNeighborScan = cfg.NeighborScan
 	m.configSelectedPorts = make(map[int]bool)
 	for _, port := range cfg.Ports {
 		m.configSelectedPorts[port] = true
@@ -2039,6 +2042,16 @@ func (m AppModel) viewScanWithConfig() string {
 		sb.WriteString(wss + "\n")
 		sb.WriteString(styleDim.Render("            require a successful WebSocket check in Phase 1 (f4/arrows toggle)") + "\n\n")
 
+		// Row 6: Neighbor scan
+		rowLabel(6, "  Neighbors")
+		sb.WriteString(" ")
+		neighbors := styleBad.Render("OFF")
+		if m.configNeighborScan {
+			neighbors = styleGood.Render("ON")
+		}
+		sb.WriteString(neighbors + "\n")
+		sb.WriteString(styleDim.Render("            optionally probe nearby addresses after a healthy hit (space/arrows toggle)") + "\n\n")
+
 		hint := "  ↑/↓ row   ←/→ option   enter continue   esc back"
 		if m.configCustomMode {
 			hint = "  type value   enter confirm   esc cancel"
@@ -2245,8 +2258,8 @@ func (m AppModel) handleScanWithConfigKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// --- Setup navigation (Source → Count → Workers → Timeout → Ports → WebSocket) ---
-	const maxRow = 5
+	// --- Setup navigation (Source → Count → Workers → Timeout → Ports → WebSocket → Neighbors) ---
+	const maxRow = 6
 
 	configNavLeft := func() {
 		switch m.configSetupRow {
@@ -2272,6 +2285,8 @@ func (m AppModel) handleScanWithConfigKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		case 5:
 			m.scanCfg.RequireWS = !m.scanCfg.RequireWS
+		case 6:
+			m.configNeighborScan = !m.configNeighborScan
 		}
 	}
 	configNavRight := func() {
@@ -2298,6 +2313,8 @@ func (m AppModel) handleScanWithConfigKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		case 5:
 			m.scanCfg.RequireWS = !m.scanCfg.RequireWS
+		case 6:
+			m.configNeighborScan = !m.configNeighborScan
 		}
 	}
 
@@ -2329,6 +2346,10 @@ func (m AppModel) handleScanWithConfigKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		if m.configSetupRow == 5 {
 			m.scanCfg.RequireWS = !m.scanCfg.RequireWS
+			return m, nil
+		}
+		if m.configSetupRow == 6 {
+			m.configNeighborScan = !m.configNeighborScan
 			return m, nil
 		}
 	case "enter":
@@ -2741,6 +2762,7 @@ func (m AppModel) launchPhase1FromOptional() (AppModel, tea.Cmd) {
 		SpeedSizeCustom: m.configSpeedSizeCustom,
 		UploadTest:      m.configUploadTest,
 		RequireWS:       m.scanCfg.RequireWS,
+		NeighborScan:    m.configNeighborScan,
 	}
 	for port, on := range m.configSelectedPorts {
 		if on {
@@ -3119,13 +3141,14 @@ func (m AppModel) copyPhase1HealthyEndpoints() string {
 
 // configPhase1Options holds the resolved settings for a Phase 1 engine run.
 type configPhase1Options struct {
-	count       int
-	concurrency int
-	timeout     time.Duration
-	rawURL      string
-	ports       []int
-	fromFile    bool
-	requireWS   bool
+	count        int
+	concurrency  int
+	timeout      time.Duration
+	rawURL       string
+	ports        []int
+	fromFile     bool
+	requireWS    bool
+	neighborScan bool
 }
 
 func (m AppModel) startConfigPhase1() tea.Cmd {
@@ -3178,13 +3201,14 @@ func (m AppModel) resolvePhase1Options() configPhase1Options {
 	}
 
 	return configPhase1Options{
-		count:       count,
-		concurrency: concurrency,
-		timeout:     m.resolveTimeout(),
-		rawURL:      m.configURL,
-		ports:       m.resolveConfigPorts(),
-		fromFile:    m.configIPMode == 1,
-		requireWS:   m.scanCfg.RequireWS,
+		count:        count,
+		concurrency:  concurrency,
+		timeout:      m.resolveTimeout(),
+		rawURL:       m.configURL,
+		ports:        m.resolveConfigPorts(),
+		fromFile:     m.configIPMode == 1,
+		requireWS:    m.scanCfg.RequireWS,
+		neighborScan: m.configNeighborScan,
 	}
 }
 

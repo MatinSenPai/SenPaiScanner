@@ -1,17 +1,33 @@
 # SenPai Scanner — Release Notes
 
+## v1.0.0
+
+- Unified Signal Desk experience across Windows, Linux, macOS, and Android GUI builds
+- Transparent SenPai logo applied to native desktop and Android application icons
+- Android rebuilt with separate Scan, Results, and Export tabs plus a persistent session rail
+- Android live copy actions for all green endpoints and the top 20 while scans are running
+- Android post-stop speed testing, optional neighbor scanning, tunnel validation, and client exports
+- GitHub release builds for all desktop GUIs, CLIs, and Android APK artifacts
+
 ## v0.8.0
 
 ### What's New
 
 #### Desktop GUI (Wails v2)
 - New cross-platform desktop application (`desktop/`) built with Wails v2 — Windows, macOS, and Linux
-- Liquid-glass dark UI: aurora backdrop, blurred glass panels, segmented controls, live stats
-- Full scan control: IP count (1k / 5k / 20k / custom), workers, probe mode (HTTP / TLS / TCP), timeout, port, SNI, colo filter, speed test and WebSocket toggles
+- Rebuilt “Signal Desk” UI with real Scan, Results, and Export tabs plus a persistent live session rail
+- Copy every green endpoint or the top 20 unique IPs at any time, including while a scan is still running
+- Stop a scan and speed-test all green results collected so far; uses xray when a share URL is present and direct Cloudflare samples otherwise
+- Results and client exports now have separate workspaces, clear empty states, live filtering, and keyboard-accessible controls
+- Full scan control: IP count (1k / 5k / 20k / custom), workers, timeout, ports, optional neighbor/WebSocket scanning, config URL, top-N, and speed thresholds
 - Live progress events (`scan:stats`, `scan:result`, `scan:done`) streamed from Go to the UI
 - Phase 2 xray validation of the top N healthy IPs inside the GUI (`validate:result`, `validate:done`)
 - Config export built in: paste one `vless://` / `trojan://` / `vmess://` config URL, generate a full pack (subscription URLs, sing-box JSON, Clash YAML) for all working IPs, copy or save via native dialogs
 - Build script `desktop/build_gui.ps1` — single-platform or cross-compile (`-All`)
+
+#### Scan Control & Network Metadata
+- Neighbor scanning is now opt-in in both the CLI and GUI and persists with the last scan settings
+- ISP detection now merges Cloudflare metadata with parallel IPWhois/IPinfo HTTPS fallbacks and a Team Cymru DNS ASN fallback
 
 #### MahsaNG-Style IP Sampling
 - Cloudflare range pool (`internal/ipsrc/ranges_v4.txt`, 628 ranges) now sampled with the MahsaNG weighted-random algorithm: larger ranges are picked more often, every IP is unique, and small pools enumerate + shuffle instead of capping at 1024

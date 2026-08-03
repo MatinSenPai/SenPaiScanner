@@ -20,18 +20,68 @@ export namespace main {
 	        this.count = source["count"];
 	    }
 	}
+	export class PresetData {
+	    countLabels: string[];
+	    countValues: string[];
+	    workerLabels: string[];
+	    workerValues: string[];
+	    timeoutLabels: string[];
+	    timeoutValues: string[];
+	    topNLabels: string[];
+	    topNValues: string[];
+	    minSpeedLabels: string[];
+	    minSpeedValues: string[];
+	    speedSizeLabels: string[];
+	    speedSizeValues: string[];
+	    ports: number[];
+	
+	    static createFrom(source: any = {}) {
+	        return new PresetData(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.countLabels = source["countLabels"];
+	        this.countValues = source["countValues"];
+	        this.workerLabels = source["workerLabels"];
+	        this.workerValues = source["workerValues"];
+	        this.timeoutLabels = source["timeoutLabels"];
+	        this.timeoutValues = source["timeoutValues"];
+	        this.topNLabels = source["topNLabels"];
+	        this.topNValues = source["topNValues"];
+	        this.minSpeedLabels = source["minSpeedLabels"];
+	        this.minSpeedValues = source["minSpeedValues"];
+	        this.speedSizeLabels = source["speedSizeLabels"];
+	        this.speedSizeValues = source["speedSizeValues"];
+	        this.ports = source["ports"];
+	    }
+	}
 	export class ScanParams {
+	    ipMode: number;
 	    count: number;
 	    workers: number;
 	    timeoutMs: number;
-	    tries: number;
-	    port: number;
-	    mode: string;
-	    sni: string;
-	    speedTest: boolean;
+	    ports: number[];
+	    configUrl: string;
 	    requireWS: boolean;
-	    coloFilter: string;
-	    outputFile: string;
+	    topN: number;
+	    minSpeed: number;
+	    speedUrl: string;
+	    speedSize: number;
+	    uploadTest: boolean;
+	    neighborScan: boolean;
+	    countIdx: number;
+	    countCustom: string;
+	    workersIdx: number;
+	    workersCustom: string;
+	    timeoutIdx: number;
+	    timeoutCustom: string;
+	    topNIdx: number;
+	    topNCustom: string;
+	    minSpeedIdx: number;
+	    minSpeedCustom: string;
+	    speedSizeIdx: number;
+	    speedSizeCustom: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new ScanParams(source);
@@ -39,63 +89,31 @@ export namespace main {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ipMode = source["ipMode"];
 	        this.count = source["count"];
 	        this.workers = source["workers"];
 	        this.timeoutMs = source["timeoutMs"];
-	        this.tries = source["tries"];
-	        this.port = source["port"];
-	        this.mode = source["mode"];
-	        this.sni = source["sni"];
-	        this.speedTest = source["speedTest"];
-	        this.requireWS = source["requireWS"];
-	        this.coloFilter = source["coloFilter"];
-	        this.outputFile = source["outputFile"];
-	    }
-	}
-	export class ScanResult {
-	    ip: string;
-	    port: number;
-	    colo: string;
-	    avgMs: number;
-	    minMs: number;
-	    loss: number;
-	    jitterMs: number;
-	    throughput: number;
-	    healthy: boolean;
-	    mode: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new ScanResult(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.ip = source["ip"];
-	        this.port = source["port"];
-	        this.colo = source["colo"];
-	        this.avgMs = source["avgMs"];
-	        this.minMs = source["minMs"];
-	        this.loss = source["loss"];
-	        this.jitterMs = source["jitterMs"];
-	        this.throughput = source["throughput"];
-	        this.healthy = source["healthy"];
-	        this.mode = source["mode"];
-	    }
-	}
-	export class ValidationParams {
-	    configUrl: string;
-	    topN: number;
-	    timeoutMs: number;
-	
-	    static createFrom(source: any = {}) {
-	        return new ValidationParams(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ports = source["ports"];
 	        this.configUrl = source["configUrl"];
+	        this.requireWS = source["requireWS"];
 	        this.topN = source["topN"];
-	        this.timeoutMs = source["timeoutMs"];
+	        this.minSpeed = source["minSpeed"];
+	        this.speedUrl = source["speedUrl"];
+	        this.speedSize = source["speedSize"];
+	        this.uploadTest = source["uploadTest"];
+	        this.neighborScan = source["neighborScan"];
+	        this.countIdx = source["countIdx"];
+	        this.countCustom = source["countCustom"];
+	        this.workersIdx = source["workersIdx"];
+	        this.workersCustom = source["workersCustom"];
+	        this.timeoutIdx = source["timeoutIdx"];
+	        this.timeoutCustom = source["timeoutCustom"];
+	        this.topNIdx = source["topNIdx"];
+	        this.topNCustom = source["topNCustom"];
+	        this.minSpeedIdx = source["minSpeedIdx"];
+	        this.minSpeedCustom = source["minSpeedCustom"];
+	        this.speedSizeIdx = source["speedSizeIdx"];
+	        this.speedSizeCustom = source["speedSizeCustom"];
 	    }
 	}
 

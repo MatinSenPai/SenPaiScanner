@@ -1,0 +1,94 @@
+name: Build CLI
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: Release version without the v prefix
+        required: false
+        type: string
+        default: 1.0.0
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version without the v prefix
+        required: true
+        default: 1.0.0
+  pull_request:
+    paths:
+      - "**/*.go"
+      - "go.mod"
+      - "go.sum"
+      - ".github/workflows/build-cli.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: go test -short ./...
+      - run: go vet ./...
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            asset: linux-amd64
+          - goos: linux
+            goarch: arm64
+            asset: linux-arm64
+          - goos: darwin
+            goarch: amd64
+            asset: macos-intel
+          - goos: darwin
+            goarch: arm64
+            asset: macos-apple-silicon
+          - goos: windows
+            goarch: amd64
+            asset: windows-amd64
+            extension: .exe
+          - goos: windows
+            goarch: arm64
+            asset: windows-arm64
+            extension: .exe
+    env:
+      VERSION: ${{ inputs.version || github.event.inputs.version || '1.0.0' }}
+      GOOS: ${{ matrix.goos }}
+      GOARCH: ${{ matrix.goarch }}
+      CGO_ENABLED: "0"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build versioned CLI
+        shell: bash
+        run: |
+          mkdir -p release-artifacts
+          commit="$(git rev-parse --short HEAD)"
+          build_date="$(date -u +%F)"
+          output="release-artifacts/SenPaiScanner-${VERSION}-cli-${{ matrix.asset }}${{ matrix.extension }}"
+          go build -trimpath \
+            -ldflags "-s -w -X github.com/matinsenpai/senpaiscanner/pkg/version.Version=${VERSION} -X github.com/matinsenpai/senpaiscanner/pkg/version.Commit=${commit} -X github.com/matinsenpai/senpaiscanner/pkg/version.BuildDate=${build_date} -X github.com/matinsenpai/senpaiscanner/pkg/version.BuiltBy=github-actions" \
+            -o "$output" ./cmd/senpaiscanner
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cli-${{ matrix.asset }}
+          path: release-artifacts/*
+          if-no-files-found: error
+          retention-days: 14

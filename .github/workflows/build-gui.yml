@@ -1,0 +1,111 @@
+name: Build Desktop GUI
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: Release version without the v prefix
+        required: false
+        type: string
+        default: 1.0.0
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version without the v prefix
+        required: true
+        default: 1.0.0
+  pull_request:
+    paths:
+      - "desktop/**"
+      - "internal/**"
+      - "pkg/**"
+      - "go.mod"
+      - "go.sum"
+      - ".github/workflows/build-gui.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-latest
+            platform: windows/amd64
+            asset: windows-amd64
+          - runner: ubuntu-24.04
+            platform: linux/amd64
+            asset: linux-amd64
+            linux: true
+          - runner: macos-15-intel
+            platform: darwin/amd64
+            asset: macos-intel
+            macos: true
+          - runner: macos-15
+            platform: darwin/arm64
+            asset: macos-apple-silicon
+            macos: true
+    runs-on: ${{ matrix.runner }}
+    env:
+      VERSION: ${{ inputs.version || github.event.inputs.version || '1.0.0' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Install Linux GUI dependencies
+        if: matrix.linux
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev
+      - name: Install Wails 2.11
+        shell: bash
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.11.0
+      - name: Build Windows GUI
+        if: runner.os == 'Windows'
+        shell: pwsh
+        working-directory: desktop
+        run: ./build_gui.ps1 -Platform '${{ matrix.platform }}' -Version $env:VERSION
+      - name: Build Unix GUI
+        if: runner.os != 'Windows'
+        shell: bash
+        working-directory: desktop
+        run: |
+          commit="$(git rev-parse --short HEAD)"
+          build_date="$(date -u +%F)"
+          ldflags="-s -w -X github.com/matinsenpai/senpaiscanner/pkg/version.Version=${VERSION} -X github.com/matinsenpai/senpaiscanner/pkg/version.Commit=${commit} -X github.com/matinsenpai/senpaiscanner/pkg/version.BuildDate=${build_date} -X github.com/matinsenpai/senpaiscanner/pkg/version.BuiltBy=github-actions"
+          extra=()
+          if [[ '${{ matrix.platform }}' == linux/* ]]; then
+            extra=(-tags webkit2_41)
+          fi
+          wails build -clean -platform '${{ matrix.platform }}' "${extra[@]}" -ldflags "$ldflags" -o "SenPaiScanner-${VERSION}"
+      - name: Package Windows GUI
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force release-artifacts | Out-Null
+          Compress-Archive -Path "dist/senpaiscanner-gui-windows-amd64.exe" -DestinationPath "release-artifacts/SenPaiScanner-$env:VERSION-gui-${{ matrix.asset }}.zip" -Force
+      - name: Package Linux GUI
+        if: matrix.linux
+        shell: bash
+        run: |
+          mkdir -p release-artifacts
+          tar -czf "release-artifacts/SenPaiScanner-${VERSION}-gui-${{ matrix.asset }}.tar.gz" -C desktop/build/bin .
+      - name: Package macOS GUI
+        if: matrix.macos
+        shell: bash
+        run: |
+          mkdir -p release-artifacts
+          ditto -c -k --sequesterRsrc --keepParent desktop/build/bin "release-artifacts/SenPaiScanner-${VERSION}-gui-${{ matrix.asset }}.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gui-${{ matrix.asset }}
+          path: release-artifacts/*
+          if-no-files-found: error
+          retention-days: 14

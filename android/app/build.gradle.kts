@@ -7,6 +7,17 @@ plugins {
 android {
     namespace = "com.matinsenpai.senpaiscanner"
     compileSdk = 36
+    val releaseStoreFile = System.getenv("ANDROID_KEYSTORE_PATH")
+        ?.takeIf { it.isNotBlank() }
+        ?.let(::file)
+        ?: file("../keystore/release.keystore")
+    val releaseStorePassword = System.getenv("ORG_GRADLE_PROJECT_KEYSTORE_PASSWORD").orEmpty()
+    val releaseKeyAlias = System.getenv("ORG_GRADLE_PROJECT_KEY_ALIAS").orEmpty()
+    val releaseKeyPassword = System.getenv("ORG_GRADLE_PROJECT_KEY_PASSWORD").orEmpty()
+    val releaseSigningAvailable = releaseStoreFile.isFile &&
+        releaseStorePassword.isNotBlank() &&
+        releaseKeyAlias.isNotBlank() &&
+        releaseKeyPassword.isNotBlank()
     val appVersionName = System.getenv("ANDROID_VERSION_NAME")
         ?.takeIf { it.isNotBlank() }
         ?: "1.0.0"
@@ -22,11 +33,13 @@ android {
     }
 
     signingConfigs {
-        create("release") {
-            storeFile = file("../keystore/release.keystore")
-            storePassword = System.getenv("ORG_GRADLE_PROJECT_KEYSTORE_PASSWORD") ?: ""
-            keyAlias = System.getenv("ORG_GRADLE_PROJECT_KEY_ALIAS") ?: ""
-            keyPassword = System.getenv("ORG_GRADLE_PROJECT_KEY_PASSWORD") ?: ""
+        if (releaseSigningAvailable) {
+            create("release") {
+                storeFile = releaseStoreFile
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
         }
     }
 
@@ -35,7 +48,9 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            signingConfig = signingConfigs.getByName("release")
+            if (releaseSigningAvailable) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
     compileOptions {
@@ -51,7 +66,10 @@ android {
 
     splits {
         abi {
-            isEnable = true
+            isEnable = providers.gradleProperty("enableAbiSplits")
+                .orNull
+                ?.toBooleanStrictOrNull()
+                ?: true
             reset()
             include("arm64-v8a", "armeabi-v7a")
             isUniversalApk = true

@@ -4,11 +4,9 @@ import (
 	"bufio"
 	"context"
 	"encoding/binary"
-	"encoding/json"
 	"fmt"
 	"math/rand"
 	"net"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -346,12 +344,14 @@ func runConfigPhase1(opts configPhase1Options) {
 			return
 		}
 		ipStream = src.MahsaNGV4Stream(ctx, opts.count)
-		neighbor = neighborScanOpts{
-			enabled:  true,
-			nets:     src.IPv4Nets(),
-			radius:   ipsrc.DefaultNeighborRadius,
-			perHit:   ipsrc.DefaultNeighborPerHit,
-			maxTotal: ipsrc.DefaultNeighborMaxTotal,
+		if opts.neighborScan {
+			neighbor = neighborScanOpts{
+				enabled:  true,
+				nets:     src.IPv4Nets(),
+				radius:   ipsrc.DefaultNeighborRadius,
+				perHit:   ipsrc.DefaultNeighborPerHit,
+				maxTotal: ipsrc.DefaultNeighborMaxTotal,
+			}
 		}
 	}
 	runConfigPortProbes(ctx, ipStream, ports, opts.concurrency, probeCfg, callback, neighbor)
@@ -744,45 +744,11 @@ type MetaMsg struct {
 	Colo           string `json:"colo"`
 	Country        string `json:"country"`
 	IP             string `json:"ip"`
+	Source         string `json:"source"`
 }
 
 // FetchMetaCmd fetches connection metadata from cloudflare meta server,
 // falling back to ip-api.com if cloudflare is unreachable.
 func FetchMetaCmd() tea.Cmd {
-	return func() tea.Msg {
-		client := http.Client{Timeout: 5 * time.Second}
-
-		// Try Cloudflare first (provides colo data).
-		resp, err := client.Get("https://speed.cloudflare.com/meta")
-		if err == nil {
-			defer resp.Body.Close()
-			if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-				var m MetaMsg
-				if err := json.NewDecoder(resp.Body).Decode(&m); err == nil && m.ASOrganization != "" {
-					return m
-				}
-			}
-		}
-
-		// Fallback: ip-api.com (HTTP, free tier).
-		resp2, err2 := client.Get("http://ip-api.com/json")
-		if err2 == nil {
-			defer resp2.Body.Close()
-			if resp2.StatusCode >= 200 && resp2.StatusCode < 300 {
-				var raw struct {
-					ISP string `json:"isp"`
-					AS  string `json:"as"`
-					IP  string `json:"query"`
-				}
-				if err := json.NewDecoder(resp2.Body).Decode(&raw); err == nil && raw.ISP != "" {
-					return MetaMsg{
-						ASOrganization: raw.ISP,
-						IP:             raw.IP,
-					}
-				}
-			}
-		}
-
-		return MetaMsg{ASOrganization: "Unknown ISP"}
-	}
+	return func() tea.Msg { return fetchMeta() }
 }
