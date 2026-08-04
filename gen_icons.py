@@ -2,6 +2,12 @@ import os
 import sys
 from PIL import Image, ImageDraw
 
+# Pillow compatibility: _resample was added in Pillow 9.0.0
+try:
+    _resample = Image.Resampling.LANCZOS
+except AttributeError:
+    _resample = Image.LANCZOS
+
 def create_rounded_rect(size, radius, fill_color):
     """Create a rounded rectangle image"""
     img = Image.new('RGBA', size, (0, 0, 0, 0))
@@ -48,7 +54,7 @@ def generate_icons(project_dir):
         # Calculate foreground size (about 75% of total size to allow padding)
         # Standard icon is 48dp, safe zone is inner 30dp or so
         fg_size = int(size * 0.75)
-        fg_resized = fg_img.resize((fg_size, fg_size), Image.Resampling.LANCZOS)
+        fg_resized = fg_img.resize((fg_size, fg_size), _resample)
         
         # Center coordinate
         offset = ((size - fg_size) // 2, (size - fg_size) // 2)
@@ -72,7 +78,7 @@ def generate_icons(project_dir):
         if density == 'xxxhdpi':
             adaptive_size = 432
             adaptive_fg_size = int(432 * 0.8) # Foreground takes ~80% to fill space well without clipping too much
-            adaptive_fg_resized = fg_img.resize((adaptive_fg_size, adaptive_fg_size), Image.Resampling.LANCZOS)
+            adaptive_fg_resized = fg_img.resize((adaptive_fg_size, adaptive_fg_size), _resample)
             adaptive_fg = Image.new('RGBA', (adaptive_size, adaptive_size), (0, 0, 0, 0))
             adaptive_offset = ((adaptive_size - adaptive_fg_size) // 2, (adaptive_size - adaptive_fg_size) // 2)
             adaptive_fg.paste(adaptive_fg_resized, adaptive_offset, adaptive_fg_resized)

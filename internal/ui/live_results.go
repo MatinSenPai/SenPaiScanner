@@ -136,7 +136,7 @@ func (w *LiveResultWriter) flush() error {
 
 func (w *LiveResultWriter) writeLocked() error {
 
-	if len(w.phase1Rows) == 0 {
+	if len(w.phase1Rows) == 0 && len(w.phase2Rows) == 0 {
 		return nil
 	}
 

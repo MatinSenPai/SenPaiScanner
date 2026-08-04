@@ -289,8 +289,11 @@ func mobileTraceTargetsForConfig(cfg *xraytest.VLESSConfig) []mobileTraceTarget 
 			if port == 80 {
 				scheme = "http"
 			}
-			add(fmt.Sprintf("%s://%s:%d/cdn-cgi/trace", scheme, cfg.Address, port), host)
-			add(fmt.Sprintf("%s://%s:%d/cdn-cgi/trace", scheme, host, port), "")
+			// Use net.JoinHostPort to properly handle IPv6 addresses
+			addr := net.JoinHostPort(cfg.Address, strconv.Itoa(port))
+			add(fmt.Sprintf("%s://%s/cdn-cgi/trace", scheme, addr), host)
+			hostAddr := net.JoinHostPort(host, strconv.Itoa(port))
+			add(fmt.Sprintf("%s://%s/cdn-cgi/trace", scheme, hostAddr), "")
 		}
 	}
 
@@ -327,7 +330,7 @@ func mobileTunnelPathTargets(cfg *xraytest.VLESSConfig) []mobileTraceTarget {
 		scheme = "http"
 	}
 	return []mobileTraceTarget{{
-		url:  fmt.Sprintf("%s://%s:%d%s", scheme, cfg.Address, port, path),
+		url:  fmt.Sprintf("%s://%s%s", scheme, net.JoinHostPort(cfg.Address, strconv.Itoa(port)), path),
 		host: host,
 	}}
 }
