@@ -52,14 +52,14 @@
       <section class="panel active" id="panelScan" data-panel="scan" role="tabpanel" aria-labelledby="tabScan">
         <div class="page-intro">
           <div><span class="eyebrow">NEW RUN</span><h1>Find usable Cloudflare endpoints</h1><p>Start with a reachability scan. Tunnel validation and speed testing stay optional.</p></div>
-          <div class="intro-actions"><button class="button ghost" id="btnRetry">Load & run last scan</button><button class="button primary" id="btnStart">Start scan <span aria-hidden="true">→</span></button></div>
+          <div class="intro-actions"><button class="button ghost" id="btnRetry">Load and Run previous scans</button><button class="button ghost" id="btnRetryFrom">Load from file…</button><button class="button primary" id="btnStart">Start scan <span aria-hidden="true">→</span></button></div>
         </div>
 
         <div class="setup-layout">
           <section class="surface setup-primary" aria-labelledby="essentialsTitle">
             <header class="surface-head"><div><span class="step-tag">01</span><h2 id="essentialsTitle">Scan essentials</h2></div><p>These settings define the first pass.</p></header>
             <div class="form-grid">
-              <div class="field"><label>IP source</label><div class="seg" data-seg="ipMode"><button data-val="0" class="on">Random pool</button><button data-val="1">ips.txt</button></div><small>Random uses weighted Cloudflare IPv4 ranges.</small></div>
+              <div class="field full"><label>IP source</label><div class="seg" data-seg="ipMode"><button data-val="0" class="on">Random pool</button><button data-val="1">ips.txt</button></div><div class="ip-file-row hidden" id="ipFileRow"><button class="button" id="btnChooseIPFile" type="button">Choose file…</button><span class="ip-file-path" id="ipFilePath">Auto: ips.txt next to the app</span><button class="button small ghost hidden" id="btnClearIPFile" type="button">Reset</button></div><small>Random uses weighted Cloudflare IPv4 ranges. Pick a file to override the default ips.txt.</small></div>
               <div class="field"><label>Target count</label><div class="seg" data-seg="count" data-preset="count"></div><input class="input hidden" id="countCustom" inputmode="numeric" placeholder="Custom count" /></div>
               <div class="field"><label>Concurrent workers</label><div class="seg" data-seg="workers" data-preset="workers"></div><input class="input hidden" id="workersCustom" inputmode="numeric" placeholder="Custom workers" /></div>
               <div class="field"><label>Probe timeout</label><div class="seg" data-seg="timeout" data-preset="timeout"></div><input class="input hidden" id="timeoutCustom" placeholder="For example 4s" /></div>
@@ -83,7 +83,10 @@
                 <div class="field"><label>Minimum speed</label><div class="seg" data-seg="minSpeed" data-preset="minSpeed"></div><input class="input hidden" id="minSpeedCustom" inputmode="decimal" placeholder="Custom Mbps" /></div>
                 <div class="field full"><label for="speedUrl">Download URL</label><input class="input" id="speedUrl" placeholder="Default: speed.cloudflare.com" /></div>
                 <div class="field"><label>Sample size</label><div class="seg" data-seg="speedSize" data-preset="speedSize"></div><input class="input hidden" id="speedSizeCustom" inputmode="numeric" placeholder="Custom MB" /></div>
-                <label class="switch-row compact"><span><strong>Upload sample</strong><small>Also measure upload throughput.</small></span><button class="toggle" id="toggleUpload" role="switch" aria-checked="false"><span></span></button></label>
+                <div class="field full"><label>Speed test mode</label><div class="seg" id="speedModeSeg" data-seg="speedMode"><button data-val="download" class="on">Download</button><button data-val="upload">Upload only</button><button data-val="both">Both</button></div><small>Choose which throughput direction to measure.</small></div>
+                <label class="switch-row compact"><span><strong>Upload sample</strong><small>Measure upload throughput (auto-on for Upload only / Both).</small></span><button class="toggle" id="toggleUpload" role="switch" aria-checked="false"><span></span></button></label>
+                <div class="field full hidden" id="uploadUrlField"><label for="uploadUrl">Upload URL</label><input class="input" id="uploadUrl" placeholder="Default: speed.cloudflare.com" /></div>
+                <div class="field hidden" id="uploadSizeField"><label>Upload sample size</label><div class="seg" data-seg="uploadSize" data-preset="uploadSize"></div><input class="input hidden" id="uploadSizeCustom" inputmode="numeric" placeholder="Custom MB" /></div>
               </div>
             </details>
           </section>
@@ -104,20 +107,26 @@
             <div class="command-actions">
               <button class="button" id="btnCopyGreen" disabled>Copy all green</button>
               <button class="button" id="btnCopyTop20" disabled>Copy top 20 IPs</button>
+              <div class="copy-n" role="group" aria-label="Copy a chosen number of endpoints">
+                <input class="input copy-n-input" id="copyNInput" inputmode="numeric" placeholder="N" aria-label="Number of endpoints to copy" />
+                <button class="button" id="btnCopyN" disabled>Copy N</button>
+              </div>
+              <button class="button" id="btnCopySelected" disabled>Copy selected <span id="selectedCount">0</span></button>
               <button class="button signal" id="btnSpeedGreen" disabled>Speed test green results</button>
             </div>
           </div>
           <div class="table-tools"><label class="search"><span aria-hidden="true">⌕</span><input id="resultSearch" placeholder="Filter endpoint or colo" /></label><div class="sort-row" id="sortRow"><span>Sort</span><button class="sort active" data-sort="avg">Latency</button><button class="sort" data-sort="loss">Loss</button><button class="sort" data-sort="jitter">Jitter</button><button class="sort" data-sort="colo">Colo</button><button class="sort" data-sort="speed">Speed</button></div></div>
           <div class="table-wrap primary-table">
-            <table class="data-table"><thead><tr><th>Endpoint</th><th>Colo</th><th class="num">Latency</th><th class="num">Loss</th><th class="num">Jitter</th><th class="num">Direct speed</th><th>Status</th></tr></thead><tbody id="resultsBody"></tbody></table>
+            <table class="data-table"><thead><tr><th class="sel-col"><input type="checkbox" id="selectAllResults" aria-label="Select all endpoints" /></th><th>Endpoint</th><th>Colo</th><th class="num">Latency</th><th class="num">Loss</th><th class="num">Jitter</th><th class="num">Direct speed</th><th>Status</th></tr></thead><tbody id="resultsBody"></tbody></table>
             <div class="empty-state" id="resultsEmpty"><span class="empty-radar" aria-hidden="true"></span><strong>No green endpoints yet</strong><p>Start a scan, then keep this tab open. Copy actions become available immediately.</p></div>
           </div>
           <p class="table-note" id="resultLimitNote"></p>
         </section>
 
         <section class="surface speed-surface" id="speedResultsSection">
-          <header class="surface-head"><div><span class="step-tag">02</span><h2>Speed test results</h2></div><span class="result-badge" id="speedResultBadge">0 tested</span></header>
-          <div class="table-wrap speed-table-wrap"><table class="data-table"><thead><tr><th>Endpoint</th><th>Route</th><th class="num">Download</th><th class="num">Upload</th><th class="num">Latency</th><th>Status</th><th>Detail</th></tr></thead><tbody id="validationBody"></tbody></table><div class="empty-state compact-empty" id="speedEmpty"><strong>No speed test has run</strong><p>Stop at any time, then test every green result with the button above.</p></div></div>
+          <header class="surface-head"><div><span class="step-tag">02</span><h2>Speed test results</h2></div><div class="speed-head-actions"><button class="button" id="btnCopySelectedSpeed" disabled>Copy selected <span id="selectedSpeedCount">0</span></button><span class="result-badge" id="speedResultBadge">0 tested</span></div></header>
+          <div class="sort-row" id="speedSortRow"><span>Sort</span><button class="sort active" data-speedsort="throughput">Download</button><button class="sort" data-speedsort="upload">Upload</button><button class="sort" data-speedsort="latency">Latency</button><button class="sort" data-speedsort="endpoint">Endpoint</button><button class="sort" data-speedsort="route">Route</button><button class="sort" data-speedsort="status">Status</button></div>
+          <div class="table-wrap speed-table-wrap"><table class="data-table"><thead><tr><th class="sel-col"><input type="checkbox" id="selectAllSpeed" aria-label="Select all speed results" /></th><th>Endpoint</th><th>Route</th><th class="num">Download</th><th class="num">Upload</th><th class="num">Latency</th><th>Status</th><th>Detail</th></tr></thead><tbody id="validationBody"></tbody></table><div class="empty-state compact-empty" id="speedEmpty"><strong>No speed test has run</strong><p>Stop at any time, then test every green result with the button above.</p></div></div>
         </section>
       </section>
 
@@ -129,6 +138,16 @@
           <div class="quick-export-grid">
             <div><strong>All green endpoints</strong><p>One <code>IP:port</code> per line, available during scanning.</p><div class="button-row"><button class="button" id="btnCopyGreenExport" disabled>Copy endpoints</button><button class="button" id="btnSaveGreen" disabled>Save .txt</button></div></div>
             <div><strong>Top 20 IPs</strong><p>Unique IPs ranked by health and latency.</p><div class="button-row"><button class="button" id="btnCopyTop20Export" disabled>Copy top 20</button></div></div>
+            <div><strong>Choose how many</strong><p>Copy the top N green endpoints, ranked by health.</p><div class="button-row copy-n"><input class="input copy-n-input" id="copyNInputExport" inputmode="numeric" placeholder="N" aria-label="Number of endpoints to copy" /><button class="button" id="btnCopyNExport" disabled>Copy N</button></div></div>
+          </div>
+        </section>
+
+        <section class="surface quick-export">
+          <header class="surface-head"><div><span class="step-tag">A+</span><h2>Speed-tested IPs</h2></div><span class="result-badge" id="workingExportCount">0 working</span></header>
+          <p class="section-copy">Copy the IPs that passed the speed test. Choose how many, and optionally rewrite every line to a single port you pick.</p>
+          <div class="quick-export-grid">
+            <div><strong>IPs only (no port)</strong><p>One bare IP per line, in speed-test order.</p><div class="button-row copy-n"><input class="input copy-n-input" id="workingCopyNInput" inputmode="numeric" placeholder="N" aria-label="Number of IPs to copy" /><button class="button" id="btnCopyWorkingIPs" disabled>Copy IPs</button></div></div>
+            <div><strong>IPs with a custom port</strong><p>Rewrites each line to <code>IP:port</code> using the port you enter.</p><div class="button-row copy-n"><input class="input copy-n-input" id="workingPortCountInput" inputmode="numeric" placeholder="N" aria-label="Number of IPs to copy" /><input class="input copy-n-input" id="workingPortInput" inputmode="numeric" placeholder="Port" aria-label="Custom port" /><button class="button" id="btnCopyWorkingPort" disabled>Copy IP:port</button></div></div>
           </div>
         </section>
 
@@ -149,6 +168,7 @@
   </div>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <div class="context-menu" id="contextMenu" role="menu" hidden></div>
   <script src="app.js"></script>
 </body>
 </html>

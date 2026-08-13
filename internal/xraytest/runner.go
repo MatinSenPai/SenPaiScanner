@@ -173,16 +173,30 @@ func validateOnce(ctx context.Context, cfg *VLESSConfig, timeout time.Duration) 
 		return res
 	}
 
-	// Step 2: best-effort download speed (does not affect Success).
-	speedCtx, speedCancel := context.WithTimeout(ctx, speedBudget(timeout, latency))
-	defer speedCancel()
-	bytesRecv, throughput := measureProxySpeed(speedCtx, proxyURL, cfg)
-	res.BytesRecv = bytesRecv
-	res.Throughput = throughput
+	// Steps 2 & 3: throughput tests. SpeedMode chooses which run:
+	//   "download" → download only; "upload" → upload only; "both" → both.
+	// Empty defaults to "both" when UploadTest is set, else "download".
+	mode := cfg.SpeedMode
+	if mode == "" {
+		if cfg.UploadTest {
+			mode = "both"
+		} else {
+			mode = "download"
+		}
+	}
+	runDownload := mode == "download" || mode == "both"
+	runUpload := mode == "upload" || mode == "both" || cfg.UploadTest
+
+	if runDownload {
+		speedCtx, speedCancel := context.WithTimeout(ctx, speedBudget(timeout, latency))
+		defer speedCancel()
+		bytesRecv, throughput := measureProxySpeed(speedCtx, proxyURL, cfg)
+		res.BytesRecv = bytesRecv
+		res.Throughput = throughput
+	}
 	res.Success = true
 
-	// Step 3: optional upload speed test.
-	if cfg.UploadTest {
+	if runUpload {
 		uploadCtx, uploadCancel := context.WithTimeout(ctx, speedBudget(timeout, latency))
 		defer uploadCancel()
 		uploadSent, uploadThroughput := measureProxyUploadSpeed(uploadCtx, proxyURL, cfg)
@@ -543,17 +557,25 @@ func measureProxySpeed(ctx context.Context, proxyAddr string, cfg *VLESSConfig) 
 // sending a POST request with a synthetic body to an upload-capable endpoint.
 func measureProxyUploadSpeed(ctx context.Context, proxyAddr string, cfg *VLESSConfig) (int64, float64) {
 	sampleBytes := int64(speedSampleBytesFast)
-	if cfg != nil && cfg.SpeedSize > 0 {
+	if cfg != nil && cfg.UploadSize > 0 {
+		sampleBytes = cfg.UploadSize
+	} else if cfg != nil && cfg.SpeedSize > 0 {
 		sampleBytes = cfg.SpeedSize
 	}
 	if sampleBytes < speedMinBytes {
 		sampleBytes = speedMinBytes
 	}
 
-	// Upload targets — POST to cloudflare trace (always accepts body) or the
-	// config host. The upload goes through the xray SOCKS proxy so it measures
-	// real upstream capacity.
+	// Upload targets — an explicit UploadURL wins, then Cloudflare's speed
+	// upload endpoint (the upstream twin of the __down download target), then a
+	// POST to the cloudflare trace on the config host, then the shared trace
+	// endpoint. The upload goes through the xray SOCKS proxy so it measures real
+	// upstream capacity.
 	var targets []speedTarget
+	if cfg != nil && cfg.UploadURL != "" {
+		targets = append(targets, speedTarget{url: cfg.UploadURL, relaxed: true, minBytes: 1})
+	}
+	targets = append(targets, speedTarget{url: "https://speed.cloudflare.com/__up", relaxed: true, minBytes: 1})
 	if cfg != nil {
 		host := cfg.Host
 		if host == "" {

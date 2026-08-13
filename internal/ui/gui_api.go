@@ -93,6 +93,14 @@ func LoadIPsFile() ([]net.IP, error) {
 	return loadDefaultIPsFile()
 }
 
+// LoadIPsFromPath loads IPs from an explicit file path chosen by the user.
+func LoadIPsFromPath(path string) ([]net.IP, error) {
+	if strings.TrimSpace(path) == "" {
+		return loadDefaultIPsFile()
+	}
+	return loadIPs(path)
+}
+
 // NewLiveResultWriter creates a live results writer and returns it with the
 // path it will write to.
 func NewLiveResultWriter(withConfig bool) (*LiveResultWriter, string, error) {
@@ -104,6 +112,20 @@ func NewLiveResultWriter(withConfig bool) (*LiveResultWriter, string, error) {
 // used by the CLI's Retry Last Scan.
 func LoadAppConfig() AppConfig          { return loadAppConfig() }
 func SaveAppConfig(cfg AppConfig) error { return saveAppConfig(cfg) }
+
+// LoadScanConfigFile reads a saved scan config from an arbitrary path. The file
+// may be either a bare SavedConfig or an AppConfig wrapper ({"last_config":…});
+// both shapes are accepted so users can reload the app's own config.json or a
+// file exported via SaveScanConfigFile.
+func LoadScanConfigFile(path string) (SavedConfig, error) {
+	return loadScanConfigFile(path)
+}
+
+// SaveScanConfigFile writes a SavedConfig to an arbitrary path as an AppConfig
+// wrapper, matching the shared config.json layout.
+func SaveScanConfigFile(path string, cfg SavedConfig) error {
+	return saveScanConfigFile(path, cfg)
+}
 
 // FetchMeta fetches connection metadata (Cloudflare meta with ip-api.com
 // fallback) without any tea dependency.
@@ -140,7 +162,7 @@ func phase2TimeoutBudget(timeout time.Duration, minSpeed float64, speedSize int6
 // semantics as the CLI's runConfigPhase2: 10 workers, min-speed filter,
 // speed URL/size/upload settings applied per candidate. onResult is called
 // once per validated endpoint.
-func RunPhase2(ctx context.Context, rawURL string, topIPs []*result.Result, minSpeed float64, speedURL string, speedSize int64, timeout time.Duration, uploadTest bool, onResult func(*xraytest.ValidationResult, int, int)) error {
+func RunPhase2(ctx context.Context, rawURL string, topIPs []*result.Result, minSpeed float64, speedURL string, speedSize int64, timeout time.Duration, uploadTest bool, uploadSize int64, uploadURL string, speedMode string, onResult func(*xraytest.ValidationResult, int, int)) error {
 	cfg, err := xraytest.ParseProxyURL(rawURL)
 	if err != nil {
 		return fmt.Errorf("invalid config URL: %w", err)
@@ -178,9 +200,15 @@ func RunPhase2(ctx context.Context, rawURL string, topIPs []*result.Result, minS
 			swapped.SpeedURL = speedURL
 			swapped.SpeedSize = speedSize
 			swapped.UploadTest = uploadTest
+			swapped.UploadSize = uploadSize
+			swapped.UploadURL = uploadURL
+			swapped.SpeedMode = speedMode
 			vr := xraytest.ValidateConfig(ctx, swapped, timeout)
 			if vr.Success && minSpeed > 0 {
 				mbps := vr.Throughput * 8 / 1_000_000
+				if speedMode == "upload" {
+					mbps = vr.UploadThroughput * 8 / 1_000_000
+				}
 				if mbps < minSpeed {
 					vr.Success = false
 					vr.Error = fmt.Sprintf("speed below threshold (%.1f < %.1f Mbps)", mbps, minSpeed)

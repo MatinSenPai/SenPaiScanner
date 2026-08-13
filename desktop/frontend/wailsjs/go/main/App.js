@@ -18,16 +18,36 @@ export function GetVersion() {
   return window['go']['main']['App']['GetVersion']();
 }
 
+export function LoadScanConfigFromFile() {
+  return window['go']['main']['App']['LoadScanConfigFromFile']();
+}
+
 export function Presets() {
   return window['go']['main']['App']['Presets']();
+}
+
+export function RetestEndpoint(arg1, arg2, arg3) {
+  return window['go']['main']['App']['RetestEndpoint'](arg1, arg2, arg3);
+}
+
+export function RetestReachability(arg1, arg2, arg3) {
+  return window['go']['main']['App']['RetestReachability'](arg1, arg2, arg3);
 }
 
 export function RetryLastScan() {
   return window['go']['main']['App']['RetryLastScan']();
 }
 
+export function SaveScanConfigToFile(arg1) {
+  return window['go']['main']['App']['SaveScanConfigToFile'](arg1);
+}
+
 export function SaveText(arg1, arg2) {
   return window['go']['main']['App']['SaveText'](arg1, arg2);
+}
+
+export function SelectIPsFile() {
+  return window['go']['main']['App']['SelectIPsFile']();
 }
 
 export function StartScan(arg1) {

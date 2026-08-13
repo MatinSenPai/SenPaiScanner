@@ -10,6 +10,7 @@ const state = {
   activeTab: "scan",
   settings: {
     ipMode: 0,
+    ipFile: "",
     countIdx: 1, countCustom: "",
     workersIdx: 0, workersCustom: "",
     timeoutIdx: 2, timeoutCustom: "",
@@ -20,6 +21,8 @@ const state = {
     minSpeedIdx: 0, minSpeedCustom: "",
     speedSizeIdx: 1, speedSizeCustom: "",
     uploadTest: false,
+    uploadSizeIdx: 1, uploadSizeCustom: "",
+    speedMode: "download",
   },
   scan: { running: false, phase: 0, cancelled: false, manualSpeed: false, livePath: "", status: "idle" },
   stats: { tested: 0, healthy: 0, failed: 0, total: 0 },
@@ -27,9 +30,12 @@ const state = {
   results: [],
   validation: new Map(),
   workingEndpoints: [],
+  selectedResults: new Set(),
+  selectedSpeed: new Set(),
   resultFilter: "healthy",
   resultSearch: "",
   sortKey: "avg",
+  speedSortKey: "throughput",
   exportBundle: null,
 };
 
@@ -48,18 +54,28 @@ const els = {
   sessionRail: $("#sessionRail"), phaseTitle: $("#phaseTitle"), phaseHint: $("#phaseHint"),
   progressText: $("#progressText"), progressPercent: $("#progressPercent"), progressTrack: $("#progressTrack"), barFill: $("#barFill"),
   statTested: $("#statTested"), statHealthy: $("#statHealthy"), statFailed: $("#statFailed"), statPhase2: $("#statPhase2"),
-  btnStart: $("#btnStart"), btnStartBottom: $("#btnStartBottom"), btnStop: $("#btnStop"), btnRetry: $("#btnRetry"),
+  btnStart: $("#btnStart"), btnStartBottom: $("#btnStartBottom"), btnStop: $("#btnStop"), btnRetry: $("#btnRetry"), btnRetryFrom: $("#btnRetryFrom"),
   btnCopyGreen: $("#btnCopyGreen"), btnCopyTop20: $("#btnCopyTop20"), btnSpeedGreen: $("#btnSpeedGreen"),
+  btnCopyN: $("#btnCopyN"), copyNInput: $("#copyNInput"), btnCopyNExport: $("#btnCopyNExport"), copyNInputExport: $("#copyNInputExport"),
   btnCopyGreenExport: $("#btnCopyGreenExport"), btnCopyTop20Export: $("#btnCopyTop20Export"), btnSaveGreen: $("#btnSaveGreen"),
   btnBuildExport: $("#btnBuildExport"), btnExportDisk: $("#btnExportDisk"),
+  btnCopySelected: $("#btnCopySelected"), selectedCount: $("#selectedCount"), selectAllResults: $("#selectAllResults"),
+  btnCopySelectedSpeed: $("#btnCopySelectedSpeed"), selectedSpeedCount: $("#selectedSpeedCount"), selectAllSpeed: $("#selectAllSpeed"),
+  workingExportCount: $("#workingExportCount"),
+  workingCopyNInput: $("#workingCopyNInput"), btnCopyWorkingIPs: $("#btnCopyWorkingIPs"),
+  workingPortCountInput: $("#workingPortCountInput"), workingPortInput: $("#workingPortInput"), btnCopyWorkingPort: $("#btnCopyWorkingPort"),
+  contextMenu: $("#contextMenu"),
   resultsBody: $("#resultsBody"), validationBody: $("#validationBody"), resultsEmpty: $("#resultsEmpty"), speedEmpty: $("#speedEmpty"),
   resultsTabCount: $("#resultsTabCount"), exportTabCount: $("#exportTabCount"), greenFilterCount: $("#greenFilterCount"), allFilterCount: $("#allFilterCount"),
   speedResultBadge: $("#speedResultBadge"), rawExportCount: $("#rawExportCount"), resultLimitNote: $("#resultLimitNote"),
   livePathPill: $("#livePathPill"), livePathText: $("#livePathText"),
   ispChip: $("#ispChip"), ispText: $("#ispText"), networkDetail: $("#networkDetail"), versionText: $("#versionText"),
-  configUrl: $("#configUrl"), speedUrl: $("#speedUrl"), portChips: $("#portChips"),
+  configUrl: $("#configUrl"), speedUrl: $("#speedUrl"), uploadUrl: $("#uploadUrl"), uploadUrlField: $("#uploadUrlField"), portChips: $("#portChips"),
+  speedModeSeg: $("#speedModeSeg"),
   countCustom: $("#countCustom"), workersCustom: $("#workersCustom"), timeoutCustom: $("#timeoutCustom"),
   topNCustom: $("#topNCustom"), minSpeedCustom: $("#minSpeedCustom"), speedSizeCustom: $("#speedSizeCustom"),
+  uploadSizeCustom: $("#uploadSizeCustom"), uploadSizeField: $("#uploadSizeField"),
+  ipFileRow: $("#ipFileRow"), ipFilePath: $("#ipFilePath"), btnChooseIPFile: $("#btnChooseIPFile"), btnClearIPFile: $("#btnClearIPFile"),
   toggleRequireWS: $("#toggleRequireWS"), toggleNeighbors: $("#toggleNeighbors"), toggleUpload: $("#toggleUpload"),
   exportSub: $("#exportSub"), exportSingbox: $("#exportSingbox"), exportClash: $("#exportClash"), exportNote: $("#exportNote"),
   exportCallout: $("#exportCallout"), subCount: $("#subCount"), toast: $("#toast"),
@@ -110,6 +126,7 @@ const SEGS = {
   topN: { idx: "topNIdx", custom: "topNCustom", labels: "topNLabels", values: "topNValues" },
   minSpeed: { idx: "minSpeedIdx", custom: "minSpeedCustom", labels: "minSpeedLabels", values: "minSpeedValues" },
   speedSize: { idx: "speedSizeIdx", custom: "speedSizeCustom", labels: "speedSizeLabels", values: "speedSizeValues" },
+  uploadSize: { idx: "uploadSizeIdx", custom: "uploadSizeCustom", labels: "speedSizeLabels", values: "speedSizeValues" },
 };
 
 function buildSegments() {
@@ -118,12 +135,15 @@ function buildSegments() {
     button.onclick = () => {
       state.settings.ipMode = Number(button.dataset.val) || 0;
       ipMode.querySelectorAll("button").forEach((item) => item.classList.toggle("on", item === button));
+      syncIPSource();
     };
   });
   ipMode.querySelectorAll("button").forEach((button) => button.classList.toggle("on", Number(button.dataset.val) === state.settings.ipMode));
+  syncIPSource();
 
   Object.entries(SEGS).forEach(([key, def]) => {
     const root = $(`[data-seg='${key}']`);
+    if (!root) return;
     root.replaceChildren();
     state.presets[def.labels].forEach((label, index) => {
       const button = document.createElement("button");
@@ -141,9 +161,20 @@ function buildSegments() {
   });
 }
 
+function syncIPSource() {
+  const fileMode = state.settings.ipMode === 1;
+  if (els.ipFileRow) els.ipFileRow.classList.toggle("hidden", !fileMode);
+  if (els.ipFilePath) {
+    els.ipFilePath.textContent = state.settings.ipFile || "Auto: ips.txt next to the app";
+    els.ipFilePath.title = state.settings.ipFile || "";
+  }
+  if (els.btnClearIPFile) els.btnClearIPFile.classList.toggle("hidden", !state.settings.ipFile);
+}
+
 function syncCustomField(key) {
   const def = SEGS[key];
   const input = els[def.custom];
+  if (!input) return;
   const isCustom = state.settings[def.idx] === state.presets[def.labels].length - 1;
   input.classList.toggle("hidden", !isCustom);
 }
@@ -196,8 +227,14 @@ function readSettings() {
   const minSpeed = Math.max(0, resolvedPreset(SEGS.minSpeed, state.settings.minSpeedCustom, (v) => parseFloat(v), 0));
   let speedSize = resolvedPreset(SEGS.speedSize, state.settings.speedSizeCustom, (v) => parseInt(v, 10), 512 * 1024);
   if (state.settings.speedSizeIdx === state.presets.speedSizeLabels.length - 1) speedSize = Math.max(1, parseFloat(state.settings.speedSizeCustom) || .5) * 1024 * 1024;
+  let uploadSize = resolvedPreset(SEGS.uploadSize, state.settings.uploadSizeCustom, (v) => parseInt(v, 10), 512 * 1024);
+  if (state.settings.uploadSizeIdx === state.presets.speedSizeLabels.length - 1) uploadSize = Math.max(1, parseFloat(state.settings.uploadSizeCustom) || .5) * 1024 * 1024;
+  const speedMode = state.settings.speedMode || "download";
+  // Upload only / Both imply an upload measurement even if the toggle is off.
+  const uploadTest = state.settings.uploadTest || speedMode === "upload" || speedMode === "both";
   return {
     ipMode: state.settings.ipMode,
+    ipFile: state.settings.ipFile,
     count, workers, timeoutMs,
     ports: state.settings.ports.length ? [...state.settings.ports] : [0],
     configUrl: els.configUrl.value.trim(),
@@ -206,32 +243,65 @@ function readSettings() {
     topN, minSpeed,
     speedUrl: els.speedUrl.value.trim(),
     speedSize: Math.round(speedSize),
-    uploadTest: state.settings.uploadTest,
+    speedMode,
+    uploadTest,
+    uploadSize: Math.round(uploadSize),
+    uploadUrl: els.uploadUrl ? els.uploadUrl.value.trim() : "",
     countIdx: state.settings.countIdx, countCustom: state.settings.countCustom,
     workersIdx: state.settings.workersIdx, workersCustom: state.settings.workersCustom,
     timeoutIdx: state.settings.timeoutIdx, timeoutCustom: state.settings.timeoutCustom,
     topNIdx: state.settings.topNIdx, topNCustom: state.settings.topNCustom,
     minSpeedIdx: state.settings.minSpeedIdx, minSpeedCustom: state.settings.minSpeedCustom,
     speedSizeIdx: state.settings.speedSizeIdx, speedSizeCustom: state.settings.speedSizeCustom,
+    uploadSizeIdx: state.settings.uploadSizeIdx, uploadSizeCustom: state.settings.uploadSizeCustom,
+    speedMode,
   };
 }
 
 function applyParams(params) {
   const s = state.settings;
-  ["countIdx", "workersIdx", "timeoutIdx", "topNIdx", "minSpeedIdx", "speedSizeIdx"].forEach((key) => { s[key] = Number(params[key]) || 0; });
-  ["countCustom", "workersCustom", "timeoutCustom", "topNCustom", "minSpeedCustom", "speedSizeCustom"].forEach((key) => { s[key] = params[key] || ""; els[key].value = s[key]; });
+  ["countIdx", "workersIdx", "timeoutIdx", "topNIdx", "minSpeedIdx", "speedSizeIdx", "uploadSizeIdx"].forEach((key) => { s[key] = Number(params[key]) || 0; });
+  ["countCustom", "workersCustom", "timeoutCustom", "topNCustom", "minSpeedCustom", "speedSizeCustom", "uploadSizeCustom"].forEach((key) => { s[key] = params[key] || ""; if (els[key]) els[key].value = s[key]; });
   s.ipMode = Number(params.ipMode) || 0;
+  s.ipFile = params.ipFile || "";
   s.ports = (params.ports || []).filter((port) => port > 0);
   s.requireWS = params.requireWS !== false;
   s.neighborScan = !!params.neighborScan;
   s.uploadTest = !!params.uploadTest;
+  s.speedMode = params.speedMode || "download";
   els.configUrl.value = params.configUrl || "";
   els.speedUrl.value = params.speedUrl || "";
+  if (els.uploadUrl) els.uploadUrl.value = params.uploadUrl || "";
   buildSegments();
   renderPorts();
   setToggle(els.toggleRequireWS, s.requireWS);
   setToggle(els.toggleNeighbors, s.neighborScan);
   setToggle(els.toggleUpload, s.uploadTest);
+  syncSpeedMode();
+  syncUploadSizeField();
+}
+
+function syncSpeedMode() {
+  const mode = state.settings.speedMode || "download";
+  if (els.speedModeSeg) {
+    els.speedModeSeg.querySelectorAll("button").forEach((b) => b.classList.toggle("on", b.dataset.val === mode));
+  }
+  // Upload only / Both force the upload toggle on and lock it; Download frees it.
+  const forced = mode === "upload" || mode === "both";
+  if (forced) {
+    state.settings.uploadTest = true;
+    setToggle(els.toggleUpload, true);
+    if (els.toggleUpload) els.toggleUpload.disabled = true;
+  } else if (els.toggleUpload) {
+    els.toggleUpload.disabled = false;
+  }
+}
+
+function syncUploadSizeField() {
+  const mode = state.settings.speedMode || "download";
+  const on = state.settings.uploadTest || mode === "upload" || mode === "both";
+  if (els.uploadSizeField) els.uploadSizeField.classList.toggle("hidden", !on);
+  if (els.uploadUrlField) els.uploadUrlField.classList.toggle("hidden", !on);
 }
 
 function sortRank(result) {
@@ -263,6 +333,22 @@ function appendCell(row, text, className = "") {
   row.appendChild(cell);
 }
 
+function appendCheckboxCell(row, key, selectedSet) {
+  const cell = document.createElement("td");
+  cell.className = "sel-col";
+  const box = document.createElement("input");
+  box.type = "checkbox";
+  box.checked = selectedSet.has(key);
+  box.onclick = (event) => {
+    event.stopPropagation();
+    if (box.checked) selectedSet.add(key);
+    else selectedSet.delete(key);
+    mark(D.ACTIONS);
+  };
+  cell.appendChild(box);
+  row.appendChild(cell);
+}
+
 function renderResults() {
   const query = state.resultSearch.trim().toLowerCase();
   let rows = state.resultFilter === "healthy" ? healthyResults() : sortResults(state.results);
@@ -271,8 +357,14 @@ function renderResults() {
   const visible = rows.slice(0, cap);
   const fragment = document.createDocumentFragment();
   visible.forEach((result) => {
+    const endpoint = endpointOf(result);
     const row = document.createElement("tr");
-    appendCell(row, endpointOf(result), "endpoint");
+    row.classList.toggle("selected", state.selectedResults.has(endpoint));
+    row.dataset.ip = result.ip;
+    row.dataset.port = String(result.port);
+    row.oncontextmenu = (event) => openResultContextMenu(event, result);
+    appendCheckboxCell(row, endpoint, state.selectedResults);
+    appendCell(row, endpoint, "endpoint");
     appendCell(row, result.colo || "—");
     appendCell(row, fmtMs(result.avgMs), "num");
     appendCell(row, `${Math.round(result.loss)}%`, `num ${result.loss === 0 ? "good" : result.loss >= 100 ? "bad" : ""}`);
@@ -291,12 +383,36 @@ function renderResults() {
   els.rawExportCount.textContent = `${greenCount} green`;
 }
 
+function sortSpeedOutcomes(list) {
+  const key = state.speedSortKey || "throughput";
+  return [...list].sort((a, b) => {
+    // Working rows always rank above failed ones, regardless of the column.
+    const success = Number(b.success) - Number(a.success);
+    if (success) return success;
+    if (key === "upload") return (b.uploadThroughput || 0) - (a.uploadThroughput || 0);
+    if (key === "latency") {
+      const al = a.latencyMs || Infinity, bl = b.latencyMs || Infinity;
+      return al - bl;
+    }
+    if (key === "endpoint") return `${a.ip}:${a.port}`.localeCompare(`${b.ip}:${b.port}`, undefined, { numeric: true });
+    if (key === "route") return (a.transport || "").localeCompare(b.transport || "") || (b.throughput || 0) - (a.throughput || 0);
+    if (key === "status") return Number(b.success) - Number(a.success) || (b.throughput || 0) - (a.throughput || 0);
+    return (b.throughput || 0) - (a.throughput || 0); // "throughput" (download), default
+  });
+}
+
 function renderSpeedResults() {
-  const outcomes = [...state.validation.values()].sort((a, b) => Number(b.success) - Number(a.success) || (b.throughput || 0) - (a.throughput || 0));
+  const outcomes = sortSpeedOutcomes([...state.validation.values()]);
   const fragment = document.createDocumentFragment();
   outcomes.forEach((outcome) => {
+    const endpoint = `${outcome.ip}:${outcome.port}`;
     const row = document.createElement("tr");
-    appendCell(row, `${outcome.ip}:${outcome.port}`, "endpoint");
+    row.classList.toggle("selected", state.selectedSpeed.has(endpoint));
+    row.dataset.ip = outcome.ip;
+    row.dataset.port = String(outcome.port);
+    row.oncontextmenu = (event) => openSpeedContextMenu(event, outcome);
+    appendCheckboxCell(row, endpoint, state.selectedSpeed);
+    appendCell(row, endpoint, "endpoint");
     appendCell(row, outcome.transport || "—");
     appendCell(row, fmtSpeed(outcome.throughput), "num");
     appendCell(row, fmtSpeed(outcome.uploadThroughput), "num");
@@ -338,8 +454,22 @@ function syncActions() {
   els.btnStart.disabled = running;
   els.btnStartBottom.disabled = running;
   els.btnRetry.disabled = running;
+  if (els.btnRetryFrom) els.btnRetryFrom.disabled = running;
   els.btnStop.disabled = !running;
   [els.btnCopyGreen, els.btnCopyTop20, els.btnCopyGreenExport, els.btnCopyTop20Export, els.btnSaveGreen].forEach((button) => { button.disabled = !hasGreen; });
+  [els.btnCopyN, els.btnCopyNExport].forEach((button) => { if (button) button.disabled = !hasGreen; });
+
+  const selResults = state.selectedResults.size;
+  if (els.btnCopySelected) els.btnCopySelected.disabled = selResults === 0;
+  if (els.selectedCount) els.selectedCount.textContent = selResults;
+  const selSpeed = state.selectedSpeed.size;
+  if (els.btnCopySelectedSpeed) els.btnCopySelectedSpeed.disabled = selSpeed === 0;
+  if (els.selectedSpeedCount) els.selectedSpeedCount.textContent = selSpeed;
+
+  const hasWorking = state.workingEndpoints.length > 0;
+  [els.btnCopyWorkingIPs, els.btnCopyWorkingPort].forEach((button) => { if (button) button.disabled = !hasWorking; });
+  if (els.workingExportCount) els.workingExportCount.textContent = `${state.workingEndpoints.length} working`;
+
   els.btnSpeedGreen.disabled = running || !hasGreen;
   els.btnSpeedGreen.textContent = hasGreen ? `Speed test ${greenCount} green result${greenCount === 1 ? "" : "s"}` : "Speed test green results";
   const generate = canGenerateConfigs();
@@ -426,6 +556,14 @@ async function retryLast() {
   await startScan(response.value);
 }
 
+async function retryFromFile() {
+  const response = await invoke(App?.LoadScanConfigFromFile);
+  if (!response.ok || !response.value) return;
+  applyParams(response.value);
+  toast("Loaded scan settings from file.");
+  await startScan(response.value);
+}
+
 async function stopScan() {
   if (!state.scan.running) return;
   els.btnStop.disabled = true;
@@ -477,6 +615,108 @@ async function copyText(text, successMessage) {
   if (!text) { toast("Nothing is available yet."); return; }
   const response = await invoke(App?.CopyText, text);
   if (response.ok) toast(successMessage);
+}
+
+// ---- Right-click context menu ----------------------------------------------
+
+function closeContextMenu() {
+  els.contextMenu.hidden = true;
+  els.contextMenu.replaceChildren();
+}
+
+function openContextMenu(event, items) {
+  event.preventDefault();
+  const menu = els.contextMenu;
+  menu.replaceChildren();
+  items.forEach((item) => {
+    if (item.head) {
+      const head = document.createElement("div");
+      head.className = "ctx-head";
+      head.textContent = item.head;
+      menu.appendChild(head);
+      return;
+    }
+    if (item.sep) { const sep = document.createElement("div"); sep.className = "ctx-sep"; menu.appendChild(sep); return; }
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = item.label;
+    if (item.disabled) button.disabled = true;
+    else button.onclick = () => { closeContextMenu(); item.action(); };
+    menu.appendChild(button);
+  });
+  menu.hidden = false;
+  const rect = menu.getBoundingClientRect();
+  const x = Math.min(event.clientX, window.innerWidth - rect.width - 8);
+  const y = Math.min(event.clientY, window.innerHeight - rect.height - 8);
+  menu.style.left = `${Math.max(4, x)}px`;
+  menu.style.top = `${Math.max(4, y)}px`;
+}
+
+function openResultContextMenu(event, result) {
+  const endpoint = endpointOf(result);
+  openContextMenu(event, [
+    { head: endpoint },
+    { label: "Copy IP", action: () => copyText(result.ip, `Copied ${result.ip}.`) },
+    { label: "Copy IP:port", action: () => copyText(endpoint, `Copied ${endpoint}.`) },
+    { sep: true },
+    { label: "Re-test reachability", disabled: state.scan.running, action: () => retestReachability(result) },
+  ]);
+}
+
+function openSpeedContextMenu(event, outcome) {
+  const endpoint = `${outcome.ip}:${outcome.port}`;
+  openContextMenu(event, [
+    { head: endpoint },
+    { label: "Copy IP", action: () => copyText(outcome.ip, `Copied ${outcome.ip}.`) },
+    { label: "Copy IP:port", action: () => copyText(endpoint, `Copied ${endpoint}.`) },
+    { sep: true },
+    { label: "Re-test endpoint", disabled: state.scan.running, action: () => retestEndpoint(outcome.ip, outcome.port) },
+  ]);
+}
+
+async function retestReachability(result) {
+  if (state.scan.running) { toast("Stop the scan before re-testing."); return; }
+  toast(`Re-testing ${result.ip}…`);
+  const response = await invoke(App?.RetestReachability, readSettings(), result.ip, result.port);
+  if (!response.ok || !response.value) return;
+  const fresh = response.value;
+  const idx = state.results.findIndex((r) => r.ip === fresh.ip && r.port === fresh.port);
+  if (idx >= 0) state.results[idx] = fresh; else state.results.push(fresh);
+  mark(D.RESULTS, D.ACTIONS);
+  toast(`${fresh.ip}: ${fresh.healthy ? "green" : "failed"} · ${fmtMs(fresh.avgMs)}`);
+}
+
+async function retestEndpoint(ip, port) {
+  if (state.scan.running) { toast("Stop the scan before re-testing."); return; }
+  toast(`Re-testing ${ip}:${port}…`);
+  const response = await invoke(App?.RetestEndpoint, readSettings(), ip, port);
+  if (!response.ok || !response.value) return;
+  const outcome = response.value;
+  state.validation.set(`${outcome.ip}:${outcome.port}`, outcome);
+  mark(D.SPEED, D.ACTIONS);
+  toast(`${outcome.ip}:${outcome.port}: ${outcome.success ? "working" : "failed"} · ${fmtSpeed(outcome.throughput)}`);
+}
+
+// ---- Speed-tested IP copy helpers ------------------------------------------
+
+function workingIPsList() { return state.workingEndpoints.map((ep) => String(ep).split(":")[0]); }
+
+function copyWorkingIPs(inputEl) {
+  const ips = workingIPsList();
+  if (ips.length === 0) { toast("No speed-tested IPs yet."); return; }
+  const n = parseInt((inputEl?.value || "").trim(), 10);
+  const slice = Number.isFinite(n) && n > 0 ? ips.slice(0, n) : ips;
+  copyText(slice.join("\n"), `Copied ${slice.length} IP${slice.length === 1 ? "" : "s"}.`);
+}
+
+function copyWorkingWithPort(countEl, portEl) {
+  const ips = workingIPsList();
+  if (ips.length === 0) { toast("No speed-tested IPs yet."); return; }
+  const port = parseInt((portEl?.value || "").trim(), 10);
+  if (!Number.isFinite(port) || port <= 0 || port > 65535) { toast("Enter a valid port (1-65535)."); return; }
+  const n = parseInt((countEl?.value || "").trim(), 10);
+  const slice = Number.isFinite(n) && n > 0 ? ips.slice(0, n) : ips;
+  copyText(slice.map((ip) => `${ip}:${port}`).join("\n"), `Copied ${slice.length} IP:${port} line${slice.length === 1 ? "" : "s"}.`);
 }
 
 async function buildExport(showToast = true) {
@@ -551,18 +791,35 @@ function wireControls() {
   els.btnStart.onclick = () => startScan();
   els.btnStartBottom.onclick = () => startScan();
   els.btnRetry.onclick = retryLast;
+  if (els.btnRetryFrom) els.btnRetryFrom.onclick = retryFromFile;
   els.btnStop.onclick = stopScan;
   els.btnSpeedGreen.onclick = speedTestGreen;
 
   [[els.toggleRequireWS, "requireWS"], [els.toggleNeighbors, "neighborScan"], [els.toggleUpload, "uploadTest"]].forEach(([element, key]) => {
-    element.onclick = () => { state.settings[key] = !state.settings[key]; setToggle(element, state.settings[key]); };
+    element.onclick = () => { if (element.disabled) return; state.settings[key] = !state.settings[key]; setToggle(element, state.settings[key]); if (key === "uploadTest") syncUploadSizeField(); };
   });
+  if (els.speedModeSeg) {
+    els.speedModeSeg.querySelectorAll("button").forEach((button) => {
+      button.onclick = () => { state.settings.speedMode = button.dataset.val || "download"; syncSpeedMode(); syncUploadSizeField(); };
+    });
+  }
   Object.values(SEGS).forEach((def) => {
-    els[def.custom].oninput = (event) => { state.settings[def.custom] = event.target.value; };
+    if (els[def.custom]) els[def.custom].oninput = (event) => { state.settings[def.custom] = event.target.value; };
   });
 
+  // Choose an explicit ips file (native open dialog).
+  if (els.btnChooseIPFile) els.btnChooseIPFile.onclick = async () => {
+    const response = await invoke(App?.SelectIPsFile);
+    if (!response.ok) return;
+    const path = response.value || "";
+    if (path) { state.settings.ipFile = path; toast(`IP list: ${path}`); }
+    syncIPSource();
+  };
+  if (els.btnClearIPFile) els.btnClearIPFile.onclick = () => { state.settings.ipFile = ""; syncIPSource(); toast("Reverted to the default ips.txt."); };
+
   $$(".filter").forEach((button) => { button.onclick = () => { state.resultFilter = button.dataset.filter; $$(".filter").forEach((item) => item.classList.toggle("active", item === button)); mark(D.RESULTS); }; });
-  $$(".sort").forEach((button) => { button.onclick = () => { state.sortKey = button.dataset.sort; $$(".sort").forEach((item) => item.classList.toggle("active", item === button)); mark(D.RESULTS); }; });
+  $$("#sortRow .sort").forEach((button) => { button.onclick = () => { state.sortKey = button.dataset.sort; $$("#sortRow .sort").forEach((item) => item.classList.toggle("active", item === button)); mark(D.RESULTS); }; });
+  $$("#speedSortRow .sort").forEach((button) => { button.onclick = () => { state.speedSortKey = button.dataset.speedsort; $$("#speedSortRow .sort").forEach((item) => item.classList.toggle("active", item === button)); mark(D.SPEED); }; });
   $("#resultSearch").oninput = (event) => { state.resultSearch = event.target.value; mark(D.RESULTS); };
 
   const copyGreen = () => copyText(greenEndpoints().join("\n"), `Copied ${greenEndpoints().length} green endpoints.`);
@@ -571,6 +828,66 @@ function wireControls() {
   els.btnCopyGreenExport.onclick = copyGreen;
   els.btnCopyTop20.onclick = copyTop;
   els.btnCopyTop20Export.onclick = copyTop;
+
+  const copyN = (inputEl) => {
+    const endpoints = greenEndpoints();
+    if (endpoints.length === 0) { toast("No green endpoints yet."); return; }
+    const n = parseInt((inputEl?.value || "").trim(), 10);
+    if (!Number.isFinite(n) || n <= 0) { toast("Enter a positive number."); return; }
+    const slice = endpoints.slice(0, n);
+    copyText(slice.join("\n"), `Copied ${slice.length} green endpoint${slice.length === 1 ? "" : "s"}.`);
+  };
+  const wireCopyN = (button, input) => {
+    if (!button || !input) return;
+    button.onclick = () => copyN(input);
+    input.onkeydown = (event) => { if (event.key === "Enter") copyN(input); };
+  };
+  wireCopyN(els.btnCopyN, els.copyNInput);
+  wireCopyN(els.btnCopyNExport, els.copyNInputExport);
+
+  // Copy selected rows (both Results tables).
+  if (els.btnCopySelected) els.btnCopySelected.onclick = () => {
+    const list = [...state.selectedResults];
+    if (list.length === 0) { toast("Select at least one row."); return; }
+    copyText(list.join("\n"), `Copied ${list.length} selected endpoint${list.length === 1 ? "" : "s"}.`);
+  };
+  if (els.btnCopySelectedSpeed) els.btnCopySelectedSpeed.onclick = () => {
+    const list = [...state.selectedSpeed];
+    if (list.length === 0) { toast("Select at least one row."); return; }
+    copyText(list.join("\n"), `Copied ${list.length} selected endpoint${list.length === 1 ? "" : "s"}.`);
+  };
+  const wireSelectAll = (box, selectedSet, keyFn) => {
+    if (!box) return;
+    box.onclick = () => {
+      if (box.checked) keyFn().forEach((key) => selectedSet.add(key));
+      else selectedSet.clear();
+      mark(D.RESULTS, D.SPEED, D.ACTIONS);
+    };
+  };
+  wireSelectAll(els.selectAllResults, state.selectedResults, () => {
+    const query = state.resultSearch.trim().toLowerCase();
+    let rows = state.resultFilter === "healthy" ? healthyResults() : sortResults(state.results);
+    if (query) rows = rows.filter((r) => `${r.ip}:${r.port} ${r.colo || ""}`.toLowerCase().includes(query));
+    return rows.map(endpointOf);
+  });
+  wireSelectAll(els.selectAllSpeed, state.selectedSpeed, () => [...state.validation.values()].map((o) => `${o.ip}:${o.port}`));
+
+  // Copy speed-tested IPs (Export tab).
+  if (els.btnCopyWorkingIPs) {
+    els.btnCopyWorkingIPs.onclick = () => copyWorkingIPs(els.workingCopyNInput);
+    els.workingCopyNInput.onkeydown = (event) => { if (event.key === "Enter") copyWorkingIPs(els.workingCopyNInput); };
+  }
+  if (els.btnCopyWorkingPort) {
+    els.btnCopyWorkingPort.onclick = () => copyWorkingWithPort(els.workingPortCountInput, els.workingPortInput);
+    els.workingPortInput.onkeydown = (event) => { if (event.key === "Enter") copyWorkingWithPort(els.workingPortCountInput, els.workingPortInput); };
+  }
+
+  // Dismiss the context menu on any outside interaction.
+  document.addEventListener("click", closeContextMenu);
+  document.addEventListener("scroll", closeContextMenu, true);
+  window.addEventListener("blur", closeContextMenu);
+  document.addEventListener("keydown", (event) => { if (event.key === "Escape") closeContextMenu(); });
+
   els.btnSaveGreen.onclick = async () => {
     const text = greenEndpoints().join("\n");
     if (!text) return;
@@ -625,6 +942,8 @@ async function init() {
   setToggle(els.toggleRequireWS, state.settings.requireWS);
   setToggle(els.toggleNeighbors, state.settings.neighborScan);
   setToggle(els.toggleUpload, state.settings.uploadTest);
+  syncSpeedMode();
+  syncUploadSizeField();
   wireControls();
   if (App) wireEvents();
   else toast("Preview mode · launch through Wails to scan.");

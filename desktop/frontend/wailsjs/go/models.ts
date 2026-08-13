@@ -58,6 +58,7 @@ export namespace main {
 	}
 	export class ScanParams {
 	    ipMode: number;
+	    ipFile: string;
 	    count: number;
 	    workers: number;
 	    timeoutMs: number;
@@ -69,6 +70,9 @@ export namespace main {
 	    speedUrl: string;
 	    speedSize: number;
 	    uploadTest: boolean;
+	    uploadSize: number;
+	    uploadUrl: string;
+	    speedMode: string;
 	    neighborScan: boolean;
 	    countIdx: number;
 	    countCustom: string;
@@ -82,6 +86,8 @@ export namespace main {
 	    minSpeedCustom: string;
 	    speedSizeIdx: number;
 	    speedSizeCustom: string;
+	    uploadSizeIdx: number;
+	    uploadSizeCustom: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new ScanParams(source);
@@ -90,6 +96,7 @@ export namespace main {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.ipMode = source["ipMode"];
+	        this.ipFile = source["ipFile"];
 	        this.count = source["count"];
 	        this.workers = source["workers"];
 	        this.timeoutMs = source["timeoutMs"];
@@ -101,6 +108,9 @@ export namespace main {
 	        this.speedUrl = source["speedUrl"];
 	        this.speedSize = source["speedSize"];
 	        this.uploadTest = source["uploadTest"];
+	        this.uploadSize = source["uploadSize"];
+	        this.uploadUrl = source["uploadUrl"];
+	        this.speedMode = source["speedMode"];
 	        this.neighborScan = source["neighborScan"];
 	        this.countIdx = source["countIdx"];
 	        this.countCustom = source["countCustom"];
@@ -114,6 +124,64 @@ export namespace main {
 	        this.minSpeedCustom = source["minSpeedCustom"];
 	        this.speedSizeIdx = source["speedSizeIdx"];
 	        this.speedSizeCustom = source["speedSizeCustom"];
+	        this.uploadSizeIdx = source["uploadSizeIdx"];
+	        this.uploadSizeCustom = source["uploadSizeCustom"];
+	    }
+	}
+	export class ScanResult {
+	    ip: string;
+	    port: number;
+	    colo: string;
+	    avgMs: number;
+	    loss: number;
+	    jitterMs: number;
+	    throughput: number;
+	    healthy: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new ScanResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ip = source["ip"];
+	        this.port = source["port"];
+	        this.colo = source["colo"];
+	        this.avgMs = source["avgMs"];
+	        this.loss = source["loss"];
+	        this.jitterMs = source["jitterMs"];
+	        this.throughput = source["throughput"];
+	        this.healthy = source["healthy"];
+	    }
+	}
+	export class ValidationOutcome {
+	    ip: string;
+	    port: number;
+	    transport: string;
+	    success: boolean;
+	    latencyMs: number;
+	    throughput: number;
+	    uploadThroughput: number;
+	    error: string;
+	    done: number;
+	    total: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ValidationOutcome(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ip = source["ip"];
+	        this.port = source["port"];
+	        this.transport = source["transport"];
+	        this.success = source["success"];
+	        this.latencyMs = source["latencyMs"];
+	        this.throughput = source["throughput"];
+	        this.uploadThroughput = source["uploadThroughput"];
+	        this.error = source["error"];
+	        this.done = source["done"];
+	        this.total = source["total"];
 	    }
 	}
 
