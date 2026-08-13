@@ -319,6 +319,7 @@ type SavedConfig struct {
 	UploadSizeIdx    int    `json:"upload_size_idx"`
 	UploadSizeCustom string `json:"upload_size_custom"`
 	UploadTest      bool   `json:"upload_test"`
+	SpeedMode       string `json:"speed_mode"`
 	RequireWS       bool   `json:"require_ws"`
 	NeighborScan    bool   `json:"neighbor_scan"`
 }

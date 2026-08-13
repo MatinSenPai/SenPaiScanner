@@ -22,6 +22,7 @@ const state = {
     speedSizeIdx: 1, speedSizeCustom: "",
     uploadTest: false,
     uploadSizeIdx: 1, uploadSizeCustom: "",
+    speedMode: "download",
   },
   scan: { running: false, phase: 0, cancelled: false, manualSpeed: false, livePath: "", status: "idle" },
   stats: { tested: 0, healthy: 0, failed: 0, total: 0 },
@@ -69,6 +70,7 @@ const els = {
   livePathPill: $("#livePathPill"), livePathText: $("#livePathText"),
   ispChip: $("#ispChip"), ispText: $("#ispText"), networkDetail: $("#networkDetail"), versionText: $("#versionText"),
   configUrl: $("#configUrl"), speedUrl: $("#speedUrl"), uploadUrl: $("#uploadUrl"), uploadUrlField: $("#uploadUrlField"), portChips: $("#portChips"),
+  speedModeSeg: $("#speedModeSeg"),
   countCustom: $("#countCustom"), workersCustom: $("#workersCustom"), timeoutCustom: $("#timeoutCustom"),
   topNCustom: $("#topNCustom"), minSpeedCustom: $("#minSpeedCustom"), speedSizeCustom: $("#speedSizeCustom"),
   uploadSizeCustom: $("#uploadSizeCustom"), uploadSizeField: $("#uploadSizeField"),
@@ -226,6 +228,9 @@ function readSettings() {
   if (state.settings.speedSizeIdx === state.presets.speedSizeLabels.length - 1) speedSize = Math.max(1, parseFloat(state.settings.speedSizeCustom) || .5) * 1024 * 1024;
   let uploadSize = resolvedPreset(SEGS.uploadSize, state.settings.uploadSizeCustom, (v) => parseInt(v, 10), 512 * 1024);
   if (state.settings.uploadSizeIdx === state.presets.speedSizeLabels.length - 1) uploadSize = Math.max(1, parseFloat(state.settings.uploadSizeCustom) || .5) * 1024 * 1024;
+  const speedMode = state.settings.speedMode || "download";
+  // Upload only / Both imply an upload measurement even if the toggle is off.
+  const uploadTest = state.settings.uploadTest || speedMode === "upload" || speedMode === "both";
   return {
     ipMode: state.settings.ipMode,
     ipFile: state.settings.ipFile,
@@ -237,7 +242,8 @@ function readSettings() {
     topN, minSpeed,
     speedUrl: els.speedUrl.value.trim(),
     speedSize: Math.round(speedSize),
-    uploadTest: state.settings.uploadTest,
+    speedMode,
+    uploadTest,
     uploadSize: Math.round(uploadSize),
     uploadUrl: els.uploadUrl ? els.uploadUrl.value.trim() : "",
     countIdx: state.settings.countIdx, countCustom: state.settings.countCustom,
@@ -247,6 +253,7 @@ function readSettings() {
     minSpeedIdx: state.settings.minSpeedIdx, minSpeedCustom: state.settings.minSpeedCustom,
     speedSizeIdx: state.settings.speedSizeIdx, speedSizeCustom: state.settings.speedSizeCustom,
     uploadSizeIdx: state.settings.uploadSizeIdx, uploadSizeCustom: state.settings.uploadSizeCustom,
+    speedMode,
   };
 }
 
@@ -260,6 +267,7 @@ function applyParams(params) {
   s.requireWS = params.requireWS !== false;
   s.neighborScan = !!params.neighborScan;
   s.uploadTest = !!params.uploadTest;
+  s.speedMode = params.speedMode || "download";
   els.configUrl.value = params.configUrl || "";
   els.speedUrl.value = params.speedUrl || "";
   if (els.uploadUrl) els.uploadUrl.value = params.uploadUrl || "";
@@ -268,11 +276,29 @@ function applyParams(params) {
   setToggle(els.toggleRequireWS, s.requireWS);
   setToggle(els.toggleNeighbors, s.neighborScan);
   setToggle(els.toggleUpload, s.uploadTest);
+  syncSpeedMode();
   syncUploadSizeField();
 }
 
+function syncSpeedMode() {
+  const mode = state.settings.speedMode || "download";
+  if (els.speedModeSeg) {
+    els.speedModeSeg.querySelectorAll("button").forEach((b) => b.classList.toggle("on", b.dataset.val === mode));
+  }
+  // Upload only / Both force the upload toggle on and lock it; Download frees it.
+  const forced = mode === "upload" || mode === "both";
+  if (forced) {
+    state.settings.uploadTest = true;
+    setToggle(els.toggleUpload, true);
+    if (els.toggleUpload) els.toggleUpload.disabled = true;
+  } else if (els.toggleUpload) {
+    els.toggleUpload.disabled = false;
+  }
+}
+
 function syncUploadSizeField() {
-  const on = state.settings.uploadTest;
+  const mode = state.settings.speedMode || "download";
+  const on = state.settings.uploadTest || mode === "upload" || mode === "both";
   if (els.uploadSizeField) els.uploadSizeField.classList.toggle("hidden", !on);
   if (els.uploadUrlField) els.uploadUrlField.classList.toggle("hidden", !on);
 }
@@ -741,8 +767,13 @@ function wireControls() {
   els.btnSpeedGreen.onclick = speedTestGreen;
 
   [[els.toggleRequireWS, "requireWS"], [els.toggleNeighbors, "neighborScan"], [els.toggleUpload, "uploadTest"]].forEach(([element, key]) => {
-    element.onclick = () => { state.settings[key] = !state.settings[key]; setToggle(element, state.settings[key]); if (key === "uploadTest") syncUploadSizeField(); };
+    element.onclick = () => { if (element.disabled) return; state.settings[key] = !state.settings[key]; setToggle(element, state.settings[key]); if (key === "uploadTest") syncUploadSizeField(); };
   });
+  if (els.speedModeSeg) {
+    els.speedModeSeg.querySelectorAll("button").forEach((button) => {
+      button.onclick = () => { state.settings.speedMode = button.dataset.val || "download"; syncSpeedMode(); syncUploadSizeField(); };
+    });
+  }
   Object.values(SEGS).forEach((def) => {
     if (els[def.custom]) els[def.custom].oninput = (event) => { state.settings[def.custom] = event.target.value; };
   });
@@ -881,6 +912,7 @@ async function init() {
   setToggle(els.toggleRequireWS, state.settings.requireWS);
   setToggle(els.toggleNeighbors, state.settings.neighborScan);
   setToggle(els.toggleUpload, state.settings.uploadTest);
+  syncSpeedMode();
   syncUploadSizeField();
   wireControls();
   if (App) wireEvents();

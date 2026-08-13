@@ -148,7 +148,7 @@ func phase2TimeoutBudget(timeout time.Duration, minSpeed float64, speedSize int6
 // semantics as the CLI's runConfigPhase2: 10 workers, min-speed filter,
 // speed URL/size/upload settings applied per candidate. onResult is called
 // once per validated endpoint.
-func RunPhase2(ctx context.Context, rawURL string, topIPs []*result.Result, minSpeed float64, speedURL string, speedSize int64, timeout time.Duration, uploadTest bool, uploadSize int64, uploadURL string, onResult func(*xraytest.ValidationResult, int, int)) error {
+func RunPhase2(ctx context.Context, rawURL string, topIPs []*result.Result, minSpeed float64, speedURL string, speedSize int64, timeout time.Duration, uploadTest bool, uploadSize int64, uploadURL string, speedMode string, onResult func(*xraytest.ValidationResult, int, int)) error {
 	cfg, err := xraytest.ParseProxyURL(rawURL)
 	if err != nil {
 		return fmt.Errorf("invalid config URL: %w", err)
@@ -188,9 +188,13 @@ func RunPhase2(ctx context.Context, rawURL string, topIPs []*result.Result, minS
 			swapped.UploadTest = uploadTest
 			swapped.UploadSize = uploadSize
 			swapped.UploadURL = uploadURL
+			swapped.SpeedMode = speedMode
 			vr := xraytest.ValidateConfig(ctx, swapped, timeout)
 			if vr.Success && minSpeed > 0 {
 				mbps := vr.Throughput * 8 / 1_000_000
+				if speedMode == "upload" {
+					mbps = vr.UploadThroughput * 8 / 1_000_000
+				}
 				if mbps < minSpeed {
 					vr.Success = false
 					vr.Error = fmt.Sprintf("speed below threshold (%.1f < %.1f Mbps)", mbps, minSpeed)

@@ -72,6 +72,7 @@ export namespace main {
 	    uploadTest: boolean;
 	    uploadSize: number;
 	    uploadUrl: string;
+	    speedMode: string;
 	    neighborScan: boolean;
 	    countIdx: number;
 	    countCustom: string;
@@ -109,6 +110,7 @@ export namespace main {
 	        this.uploadTest = source["uploadTest"];
 	        this.uploadSize = source["uploadSize"];
 	        this.uploadUrl = source["uploadUrl"];
+	        this.speedMode = source["speedMode"];
 	        this.neighborScan = source["neighborScan"];
 	        this.countIdx = source["countIdx"];
 	        this.countCustom = source["countCustom"];

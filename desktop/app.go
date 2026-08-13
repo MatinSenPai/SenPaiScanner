@@ -125,6 +125,7 @@ type ScanParams struct {
 	UploadTest   bool    `json:"uploadTest"`
 	UploadSize   int64   `json:"uploadSize"` // bytes; 0 = fall back to SpeedSize
 	UploadURL    string  `json:"uploadUrl"`
+	SpeedMode    string  `json:"speedMode"` // "download" | "upload" | "both"
 	NeighborScan bool    `json:"neighborScan"`
 
 	// Round-trip fields for the shared config file
@@ -171,6 +172,7 @@ func (p ScanParams) toSavedConfig() ui.SavedConfig {
 		UploadSizeIdx:    p.UploadSizeIdx,
 		UploadSizeCustom: p.UploadSizeCustom,
 		UploadTest:      p.UploadTest,
+		SpeedMode:       p.SpeedMode,
 		RequireWS:       p.RequireWS,
 		NeighborScan:    p.NeighborScan,
 	}
@@ -439,7 +441,7 @@ func (a *App) runScan(ctx context.Context, scanID int64, params ScanParams) {
 	var valMu sync.Mutex
 
 	err = ui.RunPhase2(ctx, configURL, topIPs, params.MinSpeed, params.SpeedURL,
-		params.SpeedSize, xrayTimeout, params.UploadTest, params.UploadSize, params.UploadURL,
+		params.SpeedSize, xrayTimeout, params.UploadTest, params.UploadSize, params.UploadURL, params.SpeedMode,
 		func(vr *xraytest.ValidationResult, done, total int) {
 			if writer != nil {
 				writer.AddPhase2(vr)
@@ -533,7 +535,7 @@ func (a *App) runSpeedTest(ctx context.Context, scanID int64, params ScanParams,
 		var outcomesMu sync.Mutex
 		var outcomes []*xraytest.ValidationResult
 		err := ui.RunPhase2(ctx, configURL, candidates, params.MinSpeed, params.SpeedURL,
-			params.SpeedSize, xrayTimeout, params.UploadTest, params.UploadSize, params.UploadURL,
+			params.SpeedSize, xrayTimeout, params.UploadTest, params.UploadSize, params.UploadURL, params.SpeedMode,
 			func(vr *xraytest.ValidationResult, done, total int) {
 				outcomesMu.Lock()
 				outcomes = append(outcomes, vr)
@@ -695,6 +697,7 @@ func (a *App) RetryLastScan() (ScanParams, error) {
 		UploadTest:   cfg.UploadTest,
 		UploadSize:   uploadSize,
 		UploadURL:    cfg.UploadURL,
+		SpeedMode:    cfg.SpeedMode,
 		NeighborScan: cfg.NeighborScan,
 
 		CountIdx:         cfg.CountIdx,
@@ -945,7 +948,7 @@ func (a *App) RetestEndpoint(params ScanParams, ip string, port int) (Validation
 		defer cancel()
 		var outcome ValidationOutcome
 		err := ui.RunPhase2(ctx, configURL, []*result.Result{candidate}, params.MinSpeed,
-			params.SpeedURL, params.SpeedSize, xrayTimeout, params.UploadTest, params.UploadSize, params.UploadURL,
+			params.SpeedURL, params.SpeedSize, xrayTimeout, params.UploadTest, params.UploadSize, params.UploadURL, params.SpeedMode,
 			func(vr *xraytest.ValidationResult, done, total int) {
 				outcome = validationOutcome(vr, 1, 1)
 			})

@@ -55,6 +55,10 @@ type VLESSConfig struct {
 	UploadSize int64
 	// UploadURL overrides the upload target; empty uses the config host / trace endpoint.
 	UploadURL string
+	// SpeedMode selects which throughput tests run: "download" (default),
+	// "upload" (upload only, skip download), or "both". Empty falls back to
+	// "both" when UploadTest is set, otherwise "download".
+	SpeedMode string
 }
 
 // ParseProxyURL auto-detects the protocol (vless://, trojan://, or vmess://) and parses

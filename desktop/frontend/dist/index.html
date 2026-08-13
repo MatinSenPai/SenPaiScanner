@@ -83,8 +83,9 @@
                 <div class="field"><label>Minimum speed</label><div class="seg" data-seg="minSpeed" data-preset="minSpeed"></div><input class="input hidden" id="minSpeedCustom" inputmode="decimal" placeholder="Custom Mbps" /></div>
                 <div class="field full"><label for="speedUrl">Download URL</label><input class="input" id="speedUrl" placeholder="Default: speed.cloudflare.com" /></div>
                 <div class="field"><label>Sample size</label><div class="seg" data-seg="speedSize" data-preset="speedSize"></div><input class="input hidden" id="speedSizeCustom" inputmode="numeric" placeholder="Custom MB" /></div>
-                <label class="switch-row compact"><span><strong>Upload sample</strong><small>Also measure upload throughput.</small></span><button class="toggle" id="toggleUpload" role="switch" aria-checked="false"><span></span></button></label>
-                <div class="field full hidden" id="uploadUrlField"><label for="uploadUrl">Upload URL</label><input class="input" id="uploadUrl" placeholder="Default: config host / cloudflare trace" /></div>
+                <div class="field full"><label>Speed test mode</label><div class="seg" id="speedModeSeg" data-seg="speedMode"><button data-val="download" class="on">Download</button><button data-val="upload">Upload only</button><button data-val="both">Both</button></div><small>Choose which throughput direction to measure.</small></div>
+                <label class="switch-row compact"><span><strong>Upload sample</strong><small>Measure upload throughput (auto-on for Upload only / Both).</small></span><button class="toggle" id="toggleUpload" role="switch" aria-checked="false"><span></span></button></label>
+                <div class="field full hidden" id="uploadUrlField"><label for="uploadUrl">Upload URL</label><input class="input" id="uploadUrl" placeholder="Default: speed.cloudflare.com" /></div>
                 <div class="field hidden" id="uploadSizeField"><label>Upload sample size</label><div class="seg" data-seg="uploadSize" data-preset="uploadSize"></div><input class="input hidden" id="uploadSizeCustom" inputmode="numeric" placeholder="Custom MB" /></div>
               </div>
             </details>
