@@ -113,6 +113,20 @@ func NewLiveResultWriter(withConfig bool) (*LiveResultWriter, string, error) {
 func LoadAppConfig() AppConfig          { return loadAppConfig() }
 func SaveAppConfig(cfg AppConfig) error { return saveAppConfig(cfg) }
 
+// LoadScanConfigFile reads a saved scan config from an arbitrary path. The file
+// may be either a bare SavedConfig or an AppConfig wrapper ({"last_config":…});
+// both shapes are accepted so users can reload the app's own config.json or a
+// file exported via SaveScanConfigFile.
+func LoadScanConfigFile(path string) (SavedConfig, error) {
+	return loadScanConfigFile(path)
+}
+
+// SaveScanConfigFile writes a SavedConfig to an arbitrary path as an AppConfig
+// wrapper, matching the shared config.json layout.
+func SaveScanConfigFile(path string, cfg SavedConfig) error {
+	return saveScanConfigFile(path, cfg)
+}
+
 // FetchMeta fetches connection metadata (Cloudflare meta with ip-api.com
 // fallback) without any tea dependency.
 func FetchMeta() MetaMsg { return fetchMeta() }

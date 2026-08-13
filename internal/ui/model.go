@@ -366,6 +366,37 @@ func saveAppConfig(cfg AppConfig) error {
 	return os.WriteFile(path, b, 0644)
 }
 
+// loadScanConfigFile reads a SavedConfig from an explicit path. It accepts both
+// an AppConfig wrapper ({"last_config":{…}}) and a bare SavedConfig, so users
+// can point it at the app's own config.json or a hand-exported settings file.
+func loadScanConfigFile(path string) (SavedConfig, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return SavedConfig{}, err
+	}
+	var wrapper struct {
+		LastConfig *SavedConfig `json:"last_config"`
+	}
+	if err := json.Unmarshal(b, &wrapper); err == nil && wrapper.LastConfig != nil {
+		return *wrapper.LastConfig, nil
+	}
+	var bare SavedConfig
+	if err := json.Unmarshal(b, &bare); err != nil {
+		return SavedConfig{}, fmt.Errorf("parse scan config: %w", err)
+	}
+	return bare, nil
+}
+
+// saveScanConfigFile writes a SavedConfig to an explicit path using the same
+// AppConfig wrapper layout as the shared config.json.
+func saveScanConfigFile(path string, cfg SavedConfig) error {
+	b, err := json.MarshalIndent(AppConfig{LastConfig: cfg}, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, b, 0644)
+}
+
 func defaultAppConfig() AppConfig {
 	return AppConfig{
 		LastConfig: SavedConfig{

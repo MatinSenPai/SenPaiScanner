@@ -10,6 +10,8 @@ export function GenerateConfigs(arg1:string,arg2:Array<string>):Promise<main.Exp
 
 export function GetVersion():Promise<string>;
 
+export function LoadScanConfigFromFile():Promise<main.ScanParams>;
+
 export function Presets():Promise<main.PresetData>;
 
 export function RetestEndpoint(arg1:main.ScanParams,arg2:string,arg3:number):Promise<main.ValidationOutcome>;
@@ -17,6 +19,8 @@ export function RetestEndpoint(arg1:main.ScanParams,arg2:string,arg3:number):Pro
 export function RetestReachability(arg1:main.ScanParams,arg2:string,arg3:number):Promise<main.ScanResult>;
 
 export function RetryLastScan():Promise<main.ScanParams>;
+
+export function SaveScanConfigToFile(arg1:main.ScanParams):Promise<string>;
 
 export function SaveText(arg1:string,arg2:string):Promise<string>;
 

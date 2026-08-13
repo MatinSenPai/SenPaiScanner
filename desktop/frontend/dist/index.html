@@ -52,7 +52,7 @@
       <section class="panel active" id="panelScan" data-panel="scan" role="tabpanel" aria-labelledby="tabScan">
         <div class="page-intro">
           <div><span class="eyebrow">NEW RUN</span><h1>Find usable Cloudflare endpoints</h1><p>Start with a reachability scan. Tunnel validation and speed testing stay optional.</p></div>
-          <div class="intro-actions"><button class="button ghost" id="btnRetry">Load & run last scan</button><button class="button primary" id="btnStart">Start scan <span aria-hidden="true">→</span></button></div>
+          <div class="intro-actions"><button class="button ghost" id="btnRetry">Load and Run previous scans</button><button class="button ghost" id="btnRetryFrom">Load from file…</button><button class="button primary" id="btnStart">Start scan <span aria-hidden="true">→</span></button></div>
         </div>
 
         <div class="setup-layout">
@@ -125,6 +125,7 @@
 
         <section class="surface speed-surface" id="speedResultsSection">
           <header class="surface-head"><div><span class="step-tag">02</span><h2>Speed test results</h2></div><div class="speed-head-actions"><button class="button" id="btnCopySelectedSpeed" disabled>Copy selected <span id="selectedSpeedCount">0</span></button><span class="result-badge" id="speedResultBadge">0 tested</span></div></header>
+          <div class="sort-row" id="speedSortRow"><span>Sort</span><button class="sort active" data-speedsort="throughput">Download</button><button class="sort" data-speedsort="upload">Upload</button><button class="sort" data-speedsort="latency">Latency</button><button class="sort" data-speedsort="endpoint">Endpoint</button><button class="sort" data-speedsort="route">Route</button><button class="sort" data-speedsort="status">Status</button></div>
           <div class="table-wrap speed-table-wrap"><table class="data-table"><thead><tr><th class="sel-col"><input type="checkbox" id="selectAllSpeed" aria-label="Select all speed results" /></th><th>Endpoint</th><th>Route</th><th class="num">Download</th><th class="num">Upload</th><th class="num">Latency</th><th>Status</th><th>Detail</th></tr></thead><tbody id="validationBody"></tbody></table><div class="empty-state compact-empty" id="speedEmpty"><strong>No speed test has run</strong><p>Stop at any time, then test every green result with the button above.</p></div></div>
         </section>
       </section>

@@ -667,8 +667,54 @@ func resolvePorts(selected []int, configURL string, probePort int) []int {
 // values, and starts a new scan. It returns the resolved params so the
 // frontend can re-sync its form.
 func (a *App) RetryLastScan() (ScanParams, error) {
-	cfg := ui.LoadAppConfig().LastConfig
+	return savedConfigToParams(ui.LoadAppConfig().LastConfig), nil
+}
 
+// LoadScanConfigFromFile opens a native file dialog, reads a previously saved
+// scan-config JSON (the same shape written by SaveScanConfigToFile or the app's
+// shared config file), and returns resolved ScanParams. Returns an error with
+// empty params if the dialog is cancelled or the file cannot be parsed.
+func (a *App) LoadScanConfigFromFile() (ScanParams, error) {
+	path, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+		Title: "Load scan settings",
+		Filters: []runtime.FileFilter{
+			{DisplayName: "Scan config (*.json)", Pattern: "*.json"},
+			{DisplayName: "All files (*.*)", Pattern: "*.*"},
+		},
+	})
+	if err != nil {
+		return ScanParams{}, err
+	}
+	if path == "" {
+		return ScanParams{}, fmt.Errorf("no file selected")
+	}
+	cfg, err := ui.LoadScanConfigFile(path)
+	if err != nil {
+		return ScanParams{}, err
+	}
+	return savedConfigToParams(cfg), nil
+}
+
+// SaveScanConfigToFile writes the current form settings to a user-chosen JSON
+// file so they can be reloaded later via LoadScanConfigFromFile. Returns the
+// chosen path (empty if cancelled).
+func (a *App) SaveScanConfigToFile(params ScanParams) (string, error) {
+	path, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
+		DefaultFilename: "senpaiscanner-scan.json",
+		Title:           "Save scan settings",
+	})
+	if err != nil || path == "" {
+		return "", err
+	}
+	if err := ui.SaveScanConfigFile(path, params.toSavedConfig()); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+// savedConfigToParams resolves a SavedConfig (indices + custom values) into the
+// ScanParams the frontend consumes. Shared by RetryLastScan and file loading.
+func savedConfigToParams(cfg ui.SavedConfig) ScanParams {
 	count, _ := presetValueInt(ui.ConfigCountPresets(), cfg.CountIdx, cfg.CountCustom, 1000)
 	workers, _ := presetValueInt(ui.ConfigWorkerPresets(), cfg.WorkersIdx, cfg.WorkersCustom, 50)
 	timeoutStr := presetValueStr(ui.ConfigTimeoutPresets(), cfg.TimeoutIdx, cfg.TimeoutCustom, "5s")
@@ -714,7 +760,7 @@ func (a *App) RetryLastScan() (ScanParams, error) {
 		SpeedSizeCustom:  cfg.SpeedSizeCustom,
 		UploadSizeIdx:    cfg.UploadSizeIdx,
 		UploadSizeCustom: cfg.UploadSizeCustom,
-	}, nil
+	}
 }
 
 // presetValueInt resolves an index+custom preset to an int value.

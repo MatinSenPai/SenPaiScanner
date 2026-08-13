@@ -35,6 +35,7 @@ const state = {
   resultFilter: "healthy",
   resultSearch: "",
   sortKey: "avg",
+  speedSortKey: "throughput",
   exportBundle: null,
 };
 
@@ -53,7 +54,7 @@ const els = {
   sessionRail: $("#sessionRail"), phaseTitle: $("#phaseTitle"), phaseHint: $("#phaseHint"),
   progressText: $("#progressText"), progressPercent: $("#progressPercent"), progressTrack: $("#progressTrack"), barFill: $("#barFill"),
   statTested: $("#statTested"), statHealthy: $("#statHealthy"), statFailed: $("#statFailed"), statPhase2: $("#statPhase2"),
-  btnStart: $("#btnStart"), btnStartBottom: $("#btnStartBottom"), btnStop: $("#btnStop"), btnRetry: $("#btnRetry"),
+  btnStart: $("#btnStart"), btnStartBottom: $("#btnStartBottom"), btnStop: $("#btnStop"), btnRetry: $("#btnRetry"), btnRetryFrom: $("#btnRetryFrom"),
   btnCopyGreen: $("#btnCopyGreen"), btnCopyTop20: $("#btnCopyTop20"), btnSpeedGreen: $("#btnSpeedGreen"),
   btnCopyN: $("#btnCopyN"), copyNInput: $("#copyNInput"), btnCopyNExport: $("#btnCopyNExport"), copyNInputExport: $("#copyNInputExport"),
   btnCopyGreenExport: $("#btnCopyGreenExport"), btnCopyTop20Export: $("#btnCopyTop20Export"), btnSaveGreen: $("#btnSaveGreen"),
@@ -382,8 +383,26 @@ function renderResults() {
   els.rawExportCount.textContent = `${greenCount} green`;
 }
 
+function sortSpeedOutcomes(list) {
+  const key = state.speedSortKey || "throughput";
+  return [...list].sort((a, b) => {
+    // Working rows always rank above failed ones, regardless of the column.
+    const success = Number(b.success) - Number(a.success);
+    if (success) return success;
+    if (key === "upload") return (b.uploadThroughput || 0) - (a.uploadThroughput || 0);
+    if (key === "latency") {
+      const al = a.latencyMs || Infinity, bl = b.latencyMs || Infinity;
+      return al - bl;
+    }
+    if (key === "endpoint") return `${a.ip}:${a.port}`.localeCompare(`${b.ip}:${b.port}`, undefined, { numeric: true });
+    if (key === "route") return (a.transport || "").localeCompare(b.transport || "") || (b.throughput || 0) - (a.throughput || 0);
+    if (key === "status") return Number(b.success) - Number(a.success) || (b.throughput || 0) - (a.throughput || 0);
+    return (b.throughput || 0) - (a.throughput || 0); // "throughput" (download), default
+  });
+}
+
 function renderSpeedResults() {
-  const outcomes = [...state.validation.values()].sort((a, b) => Number(b.success) - Number(a.success) || (b.throughput || 0) - (a.throughput || 0));
+  const outcomes = sortSpeedOutcomes([...state.validation.values()]);
   const fragment = document.createDocumentFragment();
   outcomes.forEach((outcome) => {
     const endpoint = `${outcome.ip}:${outcome.port}`;
@@ -435,6 +454,7 @@ function syncActions() {
   els.btnStart.disabled = running;
   els.btnStartBottom.disabled = running;
   els.btnRetry.disabled = running;
+  if (els.btnRetryFrom) els.btnRetryFrom.disabled = running;
   els.btnStop.disabled = !running;
   [els.btnCopyGreen, els.btnCopyTop20, els.btnCopyGreenExport, els.btnCopyTop20Export, els.btnSaveGreen].forEach((button) => { button.disabled = !hasGreen; });
   [els.btnCopyN, els.btnCopyNExport].forEach((button) => { if (button) button.disabled = !hasGreen; });
@@ -533,6 +553,14 @@ async function retryLast() {
   if (!response.ok || !response.value) return;
   applyParams(response.value);
   toast("Loaded the last scan settings.");
+  await startScan(response.value);
+}
+
+async function retryFromFile() {
+  const response = await invoke(App?.LoadScanConfigFromFile);
+  if (!response.ok || !response.value) return;
+  applyParams(response.value);
+  toast("Loaded scan settings from file.");
   await startScan(response.value);
 }
 
@@ -763,6 +791,7 @@ function wireControls() {
   els.btnStart.onclick = () => startScan();
   els.btnStartBottom.onclick = () => startScan();
   els.btnRetry.onclick = retryLast;
+  if (els.btnRetryFrom) els.btnRetryFrom.onclick = retryFromFile;
   els.btnStop.onclick = stopScan;
   els.btnSpeedGreen.onclick = speedTestGreen;
 
@@ -789,7 +818,8 @@ function wireControls() {
   if (els.btnClearIPFile) els.btnClearIPFile.onclick = () => { state.settings.ipFile = ""; syncIPSource(); toast("Reverted to the default ips.txt."); };
 
   $$(".filter").forEach((button) => { button.onclick = () => { state.resultFilter = button.dataset.filter; $$(".filter").forEach((item) => item.classList.toggle("active", item === button)); mark(D.RESULTS); }; });
-  $$(".sort").forEach((button) => { button.onclick = () => { state.sortKey = button.dataset.sort; $$(".sort").forEach((item) => item.classList.toggle("active", item === button)); mark(D.RESULTS); }; });
+  $$("#sortRow .sort").forEach((button) => { button.onclick = () => { state.sortKey = button.dataset.sort; $$("#sortRow .sort").forEach((item) => item.classList.toggle("active", item === button)); mark(D.RESULTS); }; });
+  $$("#speedSortRow .sort").forEach((button) => { button.onclick = () => { state.speedSortKey = button.dataset.speedsort; $$("#speedSortRow .sort").forEach((item) => item.classList.toggle("active", item === button)); mark(D.SPEED); }; });
   $("#resultSearch").oninput = (event) => { state.resultSearch = event.target.value; mark(D.RESULTS); };
 
   const copyGreen = () => copyText(greenEndpoints().join("\n"), `Copied ${greenEndpoints().length} green endpoints.`);
