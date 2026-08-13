@@ -253,6 +253,10 @@ type AppModel struct {
 	configPhase1Total   int // intended IP count for Phase 1 progress display
 	liveResultPath      string
 
+	// copy-N prompt (copy a user-chosen number of found IPs)
+	copyNMode  bool
+	copyNInput textinput.Model
+
 	configMinSpeedIdx     int
 	configMinSpeedCustom  string
 	configSpeedURLInput   textinput.Model
@@ -295,6 +299,7 @@ const phase2WorkersCount = 10
 // SavedConfig represents the scan settings that can be persisted.
 type SavedConfig struct {
 	IPMode          int    `json:"ip_mode"`
+	IPFile          string `json:"ip_file"`
 	CountIdx        int    `json:"count_idx"`
 	CountCustom     string `json:"count_custom"`
 	WorkersIdx      int    `json:"workers_idx"`
@@ -310,6 +315,9 @@ type SavedConfig struct {
 	SpeedURL        string `json:"speed_url"`
 	SpeedSizeIdx    int    `json:"speed_size_idx"`
 	SpeedSizeCustom string `json:"speed_size_custom"`
+	UploadURL        string `json:"upload_url"`
+	UploadSizeIdx    int    `json:"upload_size_idx"`
+	UploadSizeCustom string `json:"upload_size_custom"`
 	UploadTest      bool   `json:"upload_test"`
 	RequireWS       bool   `json:"require_ws"`
 	NeighborScan    bool   `json:"neighbor_scan"`
@@ -452,6 +460,12 @@ func NewApp(version string) AppModel {
 	cfgCustom.CharLimit = 10
 	cfgCustom.Width = 12
 	m.configCustomInput = cfgCustom
+
+	copyNInput := textinput.New()
+	copyNInput.Placeholder = "e.g. 20"
+	copyNInput.CharLimit = 6
+	copyNInput.Width = 10
+	m.copyNInput = copyNInput
 
 	// Load configuration from file
 	appCfg := loadAppConfig()
@@ -1089,6 +1103,33 @@ func (m AppModel) copyWorkingIPs() string {
 	return copyAndSaveIPs(endpoints)
 }
 
+// copyNWorkingIPs copies the first n working endpoints (config-tested) to the
+// clipboard. n<=0 or n greater than the available count copies all of them.
+func (m AppModel) copyNWorkingIPs(n int) string {
+	endpoints := workingEndpoints(m.configResults)
+	if len(endpoints) == 0 {
+		return "no working endpoints to copy"
+	}
+	if n > 0 && n < len(endpoints) {
+		endpoints = endpoints[:n]
+	}
+	return copyAndSaveIPs(endpoints)
+}
+
+// copyNPhase1HealthyEndpoints copies the top n healthy endpoints from a
+// Phase-1-only scan. n<=0 or n beyond the available count copies all.
+func (m AppModel) copyNPhase1HealthyEndpoints(n int) string {
+	top := result.TopN(m.configPhase1Results, n)
+	if len(top) == 0 {
+		return "no healthy endpoints to copy"
+	}
+	endpoints := make([]string, 0, len(top))
+	for _, r := range top {
+		endpoints = append(endpoints, formatEndpoint(r.IP.String(), r.Port))
+	}
+	return copyAndSaveIPs(endpoints)
+}
+
 func workingIPs(results []*xraytest.ValidationResult) []string {
 	return workingEndpoints(results)
 }
@@ -1223,6 +1264,12 @@ func (m AppModel) updateFormInputs(msg tea.Msg) (AppModel, tea.Cmd) {
 			m.formInputs[i], cmd = m.formInputs[i].Update(msg)
 			cmds = append(cmds, cmd)
 		}
+	}
+
+	if (m.page == PageScanWithConfig || m.page == PageConfigPhase2 || m.page == PageConfigPhase1) && m.copyNMode {
+		var cmd tea.Cmd
+		m.copyNInput, cmd = m.copyNInput.Update(msg)
+		cmds = append(cmds, cmd)
 	}
 
 	if m.page == PageScanWithConfig && !m.configScanning && !m.configDone {
@@ -2164,8 +2211,11 @@ func (m AppModel) viewScanWithConfig() string {
 	if m.statusMsg != "" {
 		sb.WriteString(styleGood.Render("  "+m.statusMsg) + "\n")
 	}
-	if m.configDone {
-		hint := "  c copy working endpoints   e export Clash/Sing-Box/Sub configs   q/esc back to menu"
+	if m.copyNMode {
+		sb.WriteString(styleAccent.Render("  copy how many endpoints: ") + m.copyNInput.View() + "\n")
+		sb.WriteString(styleHint.Render("  enter confirm   esc cancel") + "\n")
+	} else if m.configDone {
+		hint := "  c copy working endpoints   n copy N endpoints   e export Clash/Sing-Box/Sub configs   q/esc back to menu"
 		if m.liveResultPath != "" {
 			hint += "\n" + styleDim.Render("  live results → "+m.liveResultPath)
 		}
@@ -2198,6 +2248,29 @@ func (m AppModel) configFailCount() int {
 }
 
 func (m AppModel) handleScanWithConfigKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// --- Copy-N prompt mode: ask how many endpoints to copy ---
+	if m.copyNMode {
+		switch msg.String() {
+		case "enter":
+			n, err := strconv.Atoi(strings.TrimSpace(m.copyNInput.Value()))
+			if err != nil || n <= 0 {
+				m.statusMsg = "enter a positive number"
+			} else {
+				m.statusMsg = m.copyNWorkingIPs(n)
+			}
+			m.copyNMode = false
+			m.copyNInput.Blur()
+			return m, nil
+		case "esc":
+			m.copyNMode = false
+			m.copyNInput.Blur()
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.copyNInput, cmd = m.copyNInput.Update(msg)
+		return m, cmd
+	}
+
 	// --- Custom input mode: route all keys to the active text input ---
 	if m.configCustomMode {
 		switch msg.String() {
@@ -2246,6 +2319,14 @@ func (m AppModel) handleScanWithConfigKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.configDone {
 			m.statusMsg = m.copyWorkingIPs()
 			return m, nil
+		}
+	case "n":
+		if m.configDone {
+			m.copyNMode = true
+			m.copyNInput.SetValue("")
+			m.copyNInput.Focus()
+			m.statusMsg = ""
+			return m, textinput.Blink
 		}
 	case "e":
 		if m.configDone {
@@ -3102,7 +3183,15 @@ func (m AppModel) viewConfigPhase1() string {
 	}
 
 	if m.configPhase1Done && m.configPhase1Only {
-		sb.WriteString(styleHint.Render("  c copy healthy endpoints   q/esc back") + "\n")
+		if m.statusMsg != "" {
+			sb.WriteString(styleGood.Render("  "+m.statusMsg) + "\n")
+		}
+		if m.copyNMode {
+			sb.WriteString(styleAccent.Render("  copy how many endpoints: ") + m.copyNInput.View() + "\n")
+			sb.WriteString(styleHint.Render("  enter confirm   esc cancel") + "\n")
+		} else {
+			sb.WriteString(styleHint.Render("  c copy healthy endpoints   n copy N endpoints   q/esc back") + "\n")
+		}
 	} else {
 		sb.WriteString(styleHint.Render("  q/esc cancel") + "\n")
 	}
@@ -3110,11 +3199,42 @@ func (m AppModel) viewConfigPhase1() string {
 }
 
 func (m AppModel) handleConfigPhase1Key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// --- Copy-N prompt mode ---
+	if m.copyNMode {
+		switch msg.String() {
+		case "enter":
+			n, err := strconv.Atoi(strings.TrimSpace(m.copyNInput.Value()))
+			if err != nil || n <= 0 {
+				m.statusMsg = "enter a positive number"
+			} else {
+				m.statusMsg = m.copyNPhase1HealthyEndpoints(n)
+			}
+			m.copyNMode = false
+			m.copyNInput.Blur()
+			return m, nil
+		case "esc":
+			m.copyNMode = false
+			m.copyNInput.Blur()
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.copyNInput, cmd = m.copyNInput.Update(msg)
+		return m, cmd
+	}
+
 	switch msg.String() {
 	case "c":
 		if m.configPhase1Done && m.configPhase1Only {
 			m.statusMsg = m.copyPhase1HealthyEndpoints()
 			return m, nil
+		}
+	case "n":
+		if m.configPhase1Done && m.configPhase1Only {
+			m.copyNMode = true
+			m.copyNInput.SetValue("")
+			m.copyNInput.Focus()
+			m.statusMsg = ""
+			return m, textinput.Blink
 		}
 	case "esc", "q":
 		if scanCancel != nil {

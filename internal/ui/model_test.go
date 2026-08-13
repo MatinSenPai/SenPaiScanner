@@ -212,6 +212,80 @@ func TestCopyWorkingIPsNoSuccesses(t *testing.T) {
 	}
 }
 
+func TestCopyNWorkingIPsLimitsCount(t *testing.T) {
+	var captured []string
+	orig := clipboardWriteAll
+	clipboardWriteAll = func(s string) error {
+		captured = strings.Split(strings.TrimRight(s, "\n"), "\n")
+		return nil
+	}
+	t.Cleanup(func() { clipboardWriteAll = orig })
+
+	dir := t.TempDir()
+	oldWD, _ := os.Getwd()
+	_ = os.Chdir(dir)
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+
+	m := AppModel{
+		configResults: []*xraytest.ValidationResult{
+			{IP: "104.18.1.1", Port: 443, Success: true},
+			{IP: "104.18.1.2", Port: 443, Success: true},
+			{IP: "104.18.1.3", Port: 443, Success: true},
+		},
+	}
+
+	m.copyNWorkingIPs(2)
+	if len(captured) != 2 {
+		t.Fatalf("copied %d endpoints, want 2", len(captured))
+	}
+	if captured[0] != "104.18.1.1:443" || captured[1] != "104.18.1.2:443" {
+		t.Fatalf("copied endpoints = %v", captured)
+	}
+
+	// n larger than available copies everything.
+	m.copyNWorkingIPs(99)
+	if len(captured) != 3 {
+		t.Fatalf("copied %d endpoints, want 3", len(captured))
+	}
+}
+
+func TestCopyNWorkingIPsNoSuccesses(t *testing.T) {
+	m := AppModel{
+		configResults: []*xraytest.ValidationResult{
+			{IP: "104.18.1.2", Success: false},
+		},
+	}
+	if got := m.copyNWorkingIPs(5); got != "no working endpoints to copy" {
+		t.Fatalf("message = %q", got)
+	}
+}
+
+func TestConfigNKeyOpensCopyPrompt(t *testing.T) {
+	m := newTestApp(t)
+	m.page = PageScanWithConfig
+	m.configDone = true
+	next, _ := m.handleScanWithConfigKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	if !next.(AppModel).copyNMode {
+		t.Fatal("pressing n did not enter copy-N mode")
+	}
+}
+
+func TestConfigCopyPromptRejectsNonPositive(t *testing.T) {
+	m := newTestApp(t)
+	m.page = PageScanWithConfig
+	m.configDone = true
+	m.copyNMode = true
+	m.copyNInput.SetValue("0")
+	next, _ := m.handleScanWithConfigKey(tea.KeyMsg{Type: tea.KeyEnter})
+	nm := next.(AppModel)
+	if nm.copyNMode {
+		t.Fatal("copy-N mode should exit after enter")
+	}
+	if nm.statusMsg != "enter a positive number" {
+		t.Fatalf("status = %q, want validation message", nm.statusMsg)
+	}
+}
+
 func TestFormatValidationSpeed(t *testing.T) {
 	if got := formatValidationSpeed(0); got != "n/a" {
 		t.Fatalf("zero throughput = %q, want n/a", got)

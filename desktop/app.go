@@ -111,6 +111,7 @@ func (a *App) Presets() PresetData {
 type ScanParams struct {
 	// Resolved values
 	IPMode       int     `json:"ipMode"` // 0 = random, 1 = ips.txt
+	IPFile       string  `json:"ipFile"` // explicit ips file path (IPMode == 1); empty = auto-discover
 	Count        int     `json:"count"`
 	Workers      int     `json:"workers"`
 	TimeoutMs    int     `json:"timeoutMs"`
@@ -122,6 +123,8 @@ type ScanParams struct {
 	SpeedURL     string  `json:"speedUrl"`
 	SpeedSize    int64   `json:"speedSize"` // bytes
 	UploadTest   bool    `json:"uploadTest"`
+	UploadSize   int64   `json:"uploadSize"` // bytes; 0 = fall back to SpeedSize
+	UploadURL    string  `json:"uploadUrl"`
 	NeighborScan bool    `json:"neighborScan"`
 
 	// Round-trip fields for the shared config file
@@ -137,6 +140,8 @@ type ScanParams struct {
 	MinSpeedCustom  string `json:"minSpeedCustom"`
 	SpeedSizeIdx    int    `json:"speedSizeIdx"`
 	SpeedSizeCustom string `json:"speedSizeCustom"`
+	UploadSizeIdx    int    `json:"uploadSizeIdx"`
+	UploadSizeCustom string `json:"uploadSizeCustom"`
 }
 
 func (p ScanParams) toSavedConfig() ui.SavedConfig {
@@ -146,6 +151,7 @@ func (p ScanParams) toSavedConfig() ui.SavedConfig {
 	}
 	return ui.SavedConfig{
 		IPMode:          p.IPMode,
+		IPFile:          strings.TrimSpace(p.IPFile),
 		CountIdx:        p.CountIdx,
 		CountCustom:     p.CountCustom,
 		WorkersIdx:      p.WorkersIdx,
@@ -161,6 +167,9 @@ func (p ScanParams) toSavedConfig() ui.SavedConfig {
 		SpeedURL:        strings.TrimSpace(p.SpeedURL),
 		SpeedSizeIdx:    p.SpeedSizeIdx,
 		SpeedSizeCustom: p.SpeedSizeCustom,
+		UploadURL:        strings.TrimSpace(p.UploadURL),
+		UploadSizeIdx:    p.UploadSizeIdx,
+		UploadSizeCustom: p.UploadSizeCustom,
 		UploadTest:      p.UploadTest,
 		RequireWS:       p.RequireWS,
 		NeighborScan:    p.NeighborScan,
@@ -295,7 +304,7 @@ func (a *App) runScan(ctx context.Context, scanID int64, params ScanParams) {
 	}
 	totalTarget := count * len(ports)
 	if params.IPMode == 1 {
-		ips, err := ui.LoadIPsFile()
+		ips, err := ui.LoadIPsFromPath(params.IPFile)
 		if err != nil {
 			a.emit(scanID, "scan:error", err.Error())
 			a.emit(scanID, "scan:done", map[string]any{"cancelled": false})
@@ -430,7 +439,7 @@ func (a *App) runScan(ctx context.Context, scanID int64, params ScanParams) {
 	var valMu sync.Mutex
 
 	err = ui.RunPhase2(ctx, configURL, topIPs, params.MinSpeed, params.SpeedURL,
-		params.SpeedSize, xrayTimeout, params.UploadTest,
+		params.SpeedSize, xrayTimeout, params.UploadTest, params.UploadSize, params.UploadURL,
 		func(vr *xraytest.ValidationResult, done, total int) {
 			if writer != nil {
 				writer.AddPhase2(vr)
@@ -524,7 +533,7 @@ func (a *App) runSpeedTest(ctx context.Context, scanID int64, params ScanParams,
 		var outcomesMu sync.Mutex
 		var outcomes []*xraytest.ValidationResult
 		err := ui.RunPhase2(ctx, configURL, candidates, params.MinSpeed, params.SpeedURL,
-			params.SpeedSize, xrayTimeout, params.UploadTest,
+			params.SpeedSize, xrayTimeout, params.UploadTest, params.UploadSize, params.UploadURL,
 			func(vr *xraytest.ValidationResult, done, total int) {
 				outcomesMu.Lock()
 				outcomes = append(outcomes, vr)
@@ -668,9 +677,11 @@ func (a *App) RetryLastScan() (ScanParams, error) {
 	topN, _ := presetValueInt(ui.ConfigTopNPresets(), cfg.TopNIdx, cfg.TopNCustom, 50)
 	minSpeed := presetValueFloat(ui.ConfigMinSpeedPresets(), cfg.MinSpeedIdx, cfg.MinSpeedCustom, 0)
 	speedSize := presetValueInt64(ui.ConfigSpeedSizePresets(), cfg.SpeedSizeIdx, cfg.SpeedSizeCustom, 512*1024)
+	uploadSize := presetValueInt64(ui.ConfigSpeedSizePresets(), cfg.UploadSizeIdx, cfg.UploadSizeCustom, 512*1024)
 
 	return ScanParams{
 		IPMode:       cfg.IPMode,
+		IPFile:       cfg.IPFile,
 		Count:        count,
 		Workers:      workers,
 		TimeoutMs:    timeoutMs,
@@ -682,20 +693,24 @@ func (a *App) RetryLastScan() (ScanParams, error) {
 		SpeedURL:     cfg.SpeedURL,
 		SpeedSize:    speedSize,
 		UploadTest:   cfg.UploadTest,
+		UploadSize:   uploadSize,
+		UploadURL:    cfg.UploadURL,
 		NeighborScan: cfg.NeighborScan,
 
-		CountIdx:        cfg.CountIdx,
-		CountCustom:     cfg.CountCustom,
-		WorkersIdx:      cfg.WorkersIdx,
-		WorkersCustom:   cfg.WorkersCustom,
-		TimeoutIdx:      cfg.TimeoutIdx,
-		TimeoutCustom:   cfg.TimeoutCustom,
-		TopNIdx:         cfg.TopNIdx,
-		TopNCustom:      cfg.TopNCustom,
-		MinSpeedIdx:     cfg.MinSpeedIdx,
-		MinSpeedCustom:  cfg.MinSpeedCustom,
-		SpeedSizeIdx:    cfg.SpeedSizeIdx,
-		SpeedSizeCustom: cfg.SpeedSizeCustom,
+		CountIdx:         cfg.CountIdx,
+		CountCustom:      cfg.CountCustom,
+		WorkersIdx:       cfg.WorkersIdx,
+		WorkersCustom:    cfg.WorkersCustom,
+		TimeoutIdx:       cfg.TimeoutIdx,
+		TimeoutCustom:    cfg.TimeoutCustom,
+		TopNIdx:          cfg.TopNIdx,
+		TopNCustom:       cfg.TopNCustom,
+		MinSpeedIdx:      cfg.MinSpeedIdx,
+		MinSpeedCustom:   cfg.MinSpeedCustom,
+		SpeedSizeIdx:     cfg.SpeedSizeIdx,
+		SpeedSizeCustom:  cfg.SpeedSizeCustom,
+		UploadSizeIdx:    cfg.UploadSizeIdx,
+		UploadSizeCustom: cfg.UploadSizeCustom,
 	}, nil
 }
 
@@ -851,4 +866,120 @@ func (a *App) SaveText(defaultName, content string) (string, error) {
 // CopyText copies text to the system clipboard.
 func (a *App) CopyText(text string) error {
 	return runtime.ClipboardSetText(a.ctx, text)
+}
+
+// SelectIPsFile opens a native open-file dialog so the user can pick the IP
+// list to scan. Returns the chosen path (empty if the dialog was cancelled).
+func (a *App) SelectIPsFile() (string, error) {
+	return runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+		Title: "Select IP list",
+		Filters: []runtime.FileFilter{
+			{DisplayName: "Text / CSV (*.txt;*.csv)", Pattern: "*.txt;*.csv"},
+			{DisplayName: "All files (*.*)", Pattern: "*.*"},
+		},
+	})
+}
+
+// ---------------------------------------------------------------------------
+// Single-endpoint re-test (right-click actions)
+// ---------------------------------------------------------------------------
+
+func (a *App) busy() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.scanning
+}
+
+// RetestReachability re-probes one IP:port with the Phase 1 reachability probe
+// derived from the current form settings, returning a fresh scan result.
+func (a *App) RetestReachability(params ScanParams, ip string, port int) (ScanResult, error) {
+	if a.busy() {
+		return ScanResult{}, fmt.Errorf("stop the current scan before re-testing")
+	}
+	parsed := net.ParseIP(strings.TrimSpace(ip))
+	if parsed == nil {
+		return ScanResult{}, fmt.Errorf("invalid IP: %s", ip)
+	}
+	timeout := time.Duration(params.TimeoutMs) * time.Millisecond
+	if timeout <= 0 {
+		timeout = 5 * time.Second
+	}
+	configURL := strings.TrimSpace(params.ConfigURL)
+	probeCfg, err := ui.Phase1ProbeConfig(configURL, timeout, params.RequireWS)
+	if err != nil {
+		return ScanResult{}, fmt.Errorf("invalid URL: %v", err)
+	}
+	if port <= 0 {
+		port = probeCfg.Port
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout*time.Duration(max(1, probeCfg.Tries))+2*time.Second)
+	defer cancel()
+	r := prober.Probe(ctx, parsed, probeCfg.WithPort(port))
+	return toScanResult(r), nil
+}
+
+// RetestEndpoint re-validates one IP:port. With a config URL it routes through
+// xray (tunnel validation); without one it runs a direct Cloudflare download
+// sample, mirroring the batch speed test.
+func (a *App) RetestEndpoint(params ScanParams, ip string, port int) (ValidationOutcome, error) {
+	if a.busy() {
+		return ValidationOutcome{}, fmt.Errorf("stop the current scan before re-testing")
+	}
+	parsed := net.ParseIP(strings.TrimSpace(ip))
+	if parsed == nil {
+		return ValidationOutcome{}, fmt.Errorf("invalid IP: %s", ip)
+	}
+	if port <= 0 {
+		port = 443
+	}
+	configURL := strings.TrimSpace(params.ConfigURL)
+	candidate := &result.Result{IP: parsed, Port: port}
+
+	if configURL != "" {
+		timeout := time.Duration(params.TimeoutMs) * time.Millisecond
+		if timeout <= 0 {
+			timeout = 5 * time.Second
+		}
+		xrayTimeout := ui.Phase2Timeout(timeout, params.MinSpeed, params.SpeedSize)
+		ctx, cancel := context.WithTimeout(context.Background(), xrayTimeout+5*time.Second)
+		defer cancel()
+		var outcome ValidationOutcome
+		err := ui.RunPhase2(ctx, configURL, []*result.Result{candidate}, params.MinSpeed,
+			params.SpeedURL, params.SpeedSize, xrayTimeout, params.UploadTest, params.UploadSize, params.UploadURL,
+			func(vr *xraytest.ValidationResult, done, total int) {
+				outcome = validationOutcome(vr, 1, 1)
+			})
+		if err != nil {
+			return ValidationOutcome{}, err
+		}
+		return outcome, nil
+	}
+
+	// Direct download sample (no config URL).
+	timeout := time.Duration(params.TimeoutMs) * time.Millisecond
+	if timeout < 10*time.Second {
+		timeout = 10 * time.Second
+	}
+	sampleBytes := params.SpeedSize
+	if sampleBytes <= 0 {
+		sampleBytes = 512 * 1024
+	}
+	base := prober.Config{
+		Mode: prober.ModeHTTP, Tries: 1, Timeout: timeout,
+		SNI: "speed.cloudflare.com", SpeedBytes: sampleBytes,
+		InsecureSkipVerify: true,
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout+2*time.Second)
+	defer cancel()
+	measured := prober.Probe(ctx, parsed, base.WithPort(port))
+	success := measured.IsHealthy() && measured.Throughput > 0
+	errText := ""
+	if !success {
+		errText = "download sample failed"
+	}
+	return ValidationOutcome{
+		IP: parsed.String(), Port: port, Transport: "direct", Success: success,
+		LatencyMs: float64(measured.Avg()) / float64(time.Millisecond),
+		Throughput: measured.Throughput, Error: errText, Done: 1, Total: 1,
+	}, nil
 }

@@ -93,6 +93,14 @@ func LoadIPsFile() ([]net.IP, error) {
 	return loadDefaultIPsFile()
 }
 
+// LoadIPsFromPath loads IPs from an explicit file path chosen by the user.
+func LoadIPsFromPath(path string) ([]net.IP, error) {
+	if strings.TrimSpace(path) == "" {
+		return loadDefaultIPsFile()
+	}
+	return loadIPs(path)
+}
+
 // NewLiveResultWriter creates a live results writer and returns it with the
 // path it will write to.
 func NewLiveResultWriter(withConfig bool) (*LiveResultWriter, string, error) {
@@ -140,7 +148,7 @@ func phase2TimeoutBudget(timeout time.Duration, minSpeed float64, speedSize int6
 // semantics as the CLI's runConfigPhase2: 10 workers, min-speed filter,
 // speed URL/size/upload settings applied per candidate. onResult is called
 // once per validated endpoint.
-func RunPhase2(ctx context.Context, rawURL string, topIPs []*result.Result, minSpeed float64, speedURL string, speedSize int64, timeout time.Duration, uploadTest bool, onResult func(*xraytest.ValidationResult, int, int)) error {
+func RunPhase2(ctx context.Context, rawURL string, topIPs []*result.Result, minSpeed float64, speedURL string, speedSize int64, timeout time.Duration, uploadTest bool, uploadSize int64, uploadURL string, onResult func(*xraytest.ValidationResult, int, int)) error {
 	cfg, err := xraytest.ParseProxyURL(rawURL)
 	if err != nil {
 		return fmt.Errorf("invalid config URL: %w", err)
@@ -178,6 +186,8 @@ func RunPhase2(ctx context.Context, rawURL string, topIPs []*result.Result, minS
 			swapped.SpeedURL = speedURL
 			swapped.SpeedSize = speedSize
 			swapped.UploadTest = uploadTest
+			swapped.UploadSize = uploadSize
+			swapped.UploadURL = uploadURL
 			vr := xraytest.ValidateConfig(ctx, swapped, timeout)
 			if vr.Success && minSpeed > 0 {
 				mbps := vr.Throughput * 8 / 1_000_000

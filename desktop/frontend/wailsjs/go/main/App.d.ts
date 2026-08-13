@@ -12,9 +12,15 @@ export function GetVersion():Promise<string>;
 
 export function Presets():Promise<main.PresetData>;
 
+export function RetestEndpoint(arg1:main.ScanParams,arg2:string,arg3:number):Promise<main.ValidationOutcome>;
+
+export function RetestReachability(arg1:main.ScanParams,arg2:string,arg3:number):Promise<main.ScanResult>;
+
 export function RetryLastScan():Promise<main.ScanParams>;
 
 export function SaveText(arg1:string,arg2:string):Promise<string>;
+
+export function SelectIPsFile():Promise<string>;
 
 export function StartScan(arg1:main.ScanParams):Promise<void>;
 

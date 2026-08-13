@@ -51,6 +51,10 @@ type VLESSConfig struct {
 
 	// Upload test flag — when true, Phase 2 measures upload throughput.
 	UploadTest bool
+	// UploadSize is the upload sample size in bytes; 0 falls back to SpeedSize.
+	UploadSize int64
+	// UploadURL overrides the upload target; empty uses the config host / trace endpoint.
+	UploadURL string
 }
 
 // ParseProxyURL auto-detects the protocol (vless://, trojan://, or vmess://) and parses
