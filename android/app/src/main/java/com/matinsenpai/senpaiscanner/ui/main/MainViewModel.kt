@@ -25,6 +25,8 @@ data class ScanConfig(
     val customWorkers: String = "",
     val timeoutType: String = "5s - default (restricted net)",
     val customTimeout: String = "",
+    val triesType: String = "8",
+    val customTries: String = "",
     val portType: String = "Config",
     val selectedPorts: Set<Int> = setOf(443),
     val configUrl: String = "",

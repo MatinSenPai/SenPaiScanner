@@ -25,7 +25,7 @@ import (
 // Phase1ProbeConfig builds the Phase 1 probe config exactly like the CLI:
 // defaultPhase1ProbeConfig when rawURL is empty, otherwise the URL-derived
 // probe (configProbeFromURL), with RequireWebSocket applied.
-func Phase1ProbeConfig(rawURL string, timeout time.Duration, requireWS bool) (prober.Config, error) {
+func Phase1ProbeConfig(rawURL string, timeout time.Duration, requireWS bool, tries int) (prober.Config, error) {
 	var cfg prober.Config
 	var err error
 	if trimURL(rawURL) == "" {
@@ -37,6 +37,9 @@ func Phase1ProbeConfig(rawURL string, timeout time.Duration, requireWS bool) (pr
 		}
 	}
 	cfg.RequireWebSocket = requireWS
+	if tries > 0 {
+		cfg.Tries = tries
+	}
 	return cfg, nil
 }
 
@@ -233,7 +236,11 @@ func ConfigSpeedSizePresets() PresetList {
 	}
 	return list
 }
-func ConfigWorkerPresets() PresetList  { return presetLabelsValues(quickWorkersPresets) }
+func ConfigWorkerPresets() PresetList { return presetLabelsValues(quickWorkersPresets) }
+func ConfigTriesPresets() PresetList { return presetLabelsValues(quickTriesPresets) }
+
+// DefaultTriesIdx is the tries preset the GUI selects on a fresh install.
+func DefaultTriesIdx() int { return triesDefaultIdx }
 func ConfigTimeoutPresets() PresetList { return presetLabelsValues(quickTimeoutPresets) }
 
 // ConfigPorts returns the selectable ports; 0 means "Config" (URL-derived).
@@ -385,7 +392,7 @@ func getJSON(client *http.Client, url string, dst any) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("metadata endpoint returned %s", resp.Status)
 	}
@@ -462,7 +469,7 @@ func lookupCymruMeta(rawIP string) (MetaMsg, error) {
 	defer cancel()
 	txt, err := net.DefaultResolver.LookupTXT(ctx, query)
 	if err != nil || len(txt) == 0 {
-		return MetaMsg{}, fmt.Errorf("Cymru origin lookup failed: %w", err)
+		return MetaMsg{}, fmt.Errorf("cymru origin lookup failed: %w", err)
 	}
 	parts := strings.Split(txt[0], "|")
 	if len(parts) == 0 {

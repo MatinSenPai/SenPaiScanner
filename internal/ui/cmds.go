@@ -17,6 +17,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/matinsenpai/senpaiscanner/internal/config"
 	"github.com/matinsenpai/senpaiscanner/internal/engine"
 	"github.com/matinsenpai/senpaiscanner/internal/ipsrc"
 	"github.com/matinsenpai/senpaiscanner/internal/output"
@@ -84,10 +85,10 @@ func runScan(cfg ScanConfig, scanID int64) {
 	if concurrency <= 0 {
 		concurrency = 50
 	}
-	timeout := parseTimeout(cfg.Timeout, 5*time.Second)
+	timeout := parseTimeout(cfg.Timeout, config.ScanDefaults.Timeout)
 	tries, _ := strconv.Atoi(cfg.Tries)
 	if tries <= 0 {
-		tries = 4
+		tries = config.ScanDefaults.Tries
 	}
 	port, _ := strconv.Atoi(cfg.Port)
 	if port <= 0 {
@@ -129,6 +130,8 @@ func runScan(cfg ScanConfig, scanID int64) {
 			SNI:              cfg.SNI,
 			SpeedBytes:       speedSampleForMode(mode),
 			RequireWebSocket: mode == prober.ModeHTTP && cfg.RequireWS,
+			StabilityCheck:   config.ScanDefaults.Stability,
+			InterTryJitter:   config.ScanDefaults.InterTryGap,
 		},
 	}
 	eng := engine.New(engCfg)
@@ -140,7 +143,7 @@ func runScan(cfg ScanConfig, scanID int64) {
 		fmt2 := output.DetectFormat(cfg.OutputFile)
 		if w, e := output.New(cfg.OutputFile, fmt2); e == nil {
 			writer = w
-			defer writer.Close()
+			defer func() { _ = writer.Close() }()
 		} else {
 			sendError(scanID, fmt.Sprintf("Output disabled: %v", e))
 		}
@@ -280,10 +283,18 @@ func sendColosDone(scanID int64) {
 func runConfigPhase1(opts configPhase1Options) {
 	var probeCfg prober.Config
 	var err error
+	tries := opts.tries
+	if tries <= 0 {
+		tries = config.ScanDefaults.Tries
+	}
 	if strings.TrimSpace(opts.rawURL) == "" {
 		probeCfg = defaultPhase1ProbeConfig(opts.timeout)
+		probeCfg.Tries = tries
 	} else {
 		probeCfg, err = configProbeFromURL(opts.rawURL, opts.timeout)
+		if err == nil {
+			probeCfg.Tries = tries
+		}
 		if err != nil {
 			if prog != nil {
 				prog.Send(ConfigPhase1ErrMsg{Err: fmt.Sprintf("invalid URL: %v", err)})
@@ -513,10 +524,12 @@ func defaultPhase1ProbeConfig(timeout time.Duration) prober.Config {
 	return prober.Config{
 		Port:               443,
 		Mode:               prober.ModeHTTP,
-		Tries:              4,
+		Tries:              config.ScanDefaults.Tries,
 		Timeout:            timeout,
 		SNI:                "speed.cloudflare.com",
 		InsecureSkipVerify: true,
+		StabilityCheck:     config.ScanDefaults.Stability,
+		InterTryJitter:     config.ScanDefaults.InterTryGap,
 	}
 }
 
@@ -534,10 +547,12 @@ func configProbeFromURL(rawURL string, timeout time.Duration) (prober.Config, er
 	probeCfg := prober.Config{
 		Port:               cfg.Port,
 		Mode:               prober.ModeHTTP,
-		Tries:              4,
+		Tries:              config.ScanDefaults.Tries,
 		Timeout:            timeout,
 		SNI:                sni,
 		InsecureSkipVerify: true,
+		StabilityCheck:     config.ScanDefaults.Stability,
+		InterTryJitter:     config.ScanDefaults.InterTryGap,
 	}
 	if cfg.Network == "ws" {
 		probeCfg.WebSocketHost = cfg.Host
@@ -616,7 +631,7 @@ func loadIPs(path string) ([]net.IP, error) {
 		if err != nil {
 			return nil, fmt.Errorf("open %s: %w", path, err)
 		}
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 	}
 	var ips []net.IP
 	sc := bufio.NewScanner(f)

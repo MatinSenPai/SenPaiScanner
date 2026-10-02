@@ -71,6 +71,13 @@ fun ScanScreen(
                     onSelected = { onConfigChange(config.copy(timeoutType = it, customTimeout = "")) },
                 )
 
+                FieldLabel("Probes per IP")
+                ChoiceChips(
+                    choices = listOf("4" to "4", "8" to "8", "10" to "10", "15" to "15", "20" to "20"),
+                    selected = config.triesType,
+                    onSelected = { onConfigChange(config.copy(triesType = it, customTries = "")) },
+                )
+
                 FieldLabel("Ports")
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
                     scanPorts.forEach { port ->

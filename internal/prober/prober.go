@@ -37,6 +37,20 @@ type Config struct {
 	WebSocketHost      string // empty = SNI
 	WebSocketPath      string // empty = /
 	RequireWebSocket   bool   // require a successful WebSocket probe for HTTP health
+	StabilityCheck     bool   // verify the connection survives an idle hold after each successful HTTP probe
+	InterTryJitter     time.Duration // upper bound of the sleep between tries; <= 0 uses jitterDefault
+}
+
+// jitterDefault caps the pause between consecutive tries. It only exists to
+// avoid emitting tries in a perfectly regular cadence.
+const jitterDefault = 60 * time.Millisecond
+
+// withJitter returns the effective inter-try pause bound.
+func (c Config) withJitter() time.Duration {
+	if c.InterTryJitter <= 0 {
+		return jitterDefault
+	}
+	return c.InterTryJitter
 }
 
 // WithPort returns a copy of Config targeting another remote port.
@@ -137,11 +151,16 @@ func Probe(ctx context.Context, ip net.IP, cfg Config) *result.Result {
 			r.Throughput = throughput
 		}
 
-		// After a successful HTTP probe, verify the connection can survive
-		// an idle hold. On Iranian ISPs, DPI often allows the initial trace
-		// GET but RSTs the connection shortly after — an idle hold catches
-		// this before the IP is marked healthy.
-		if cfg.Mode == ModeHTTP && httpStatus >= 200 && httpStatus < 400 && colo != "" {
+		// After a successful HTTP probe, optionally verify the connection can
+		// survive an idle hold. On Iranian ISPs, DPI often allows the initial
+		// trace GET but RSTs the connection shortly after — an idle hold
+		// catches this before the IP is marked healthy.
+		//
+		// This opens a second TLS session and holds it, so it roughly doubles
+		// the work per successful try. It stays on by default to preserve
+		// existing results, but callers chasing raw sample throughput can turn
+		// it off and rely on the percentile-based ranking instead.
+		if cfg.StabilityCheck && cfg.Mode == ModeHTTP && httpStatus >= 200 && httpStatus < 400 && colo != "" {
 			if !probeStability(ctx, ip, cfg.Port, sni, cfg.Timeout) {
 				r.Latencies[i] = 0 // mark this try as failed
 			}
@@ -149,7 +168,8 @@ func Probe(ctx context.Context, ip net.IP, cfg Config) *result.Result {
 
 		// Small jitter between tries to avoid looking like a scanner
 		if i < cfg.Tries-1 {
-			jitter := time.Duration(rand.Intn(50)+10) * time.Millisecond
+			jitterMax := cfg.withJitter()
+			jitter := time.Duration(rand.Int63n(int64(jitterMax)))
 			select {
 			case <-ctx.Done():
 			case <-time.After(jitter):
@@ -174,7 +194,7 @@ func probeTCP(ctx context.Context, ip net.IP, port int, timeout time.Duration) t
 		return 0
 	}
 	lat := time.Since(start)
-	conn.Close()
+	_ = conn.Close()
 	return lat
 }
 
@@ -200,7 +220,7 @@ func probeTLS(ctx context.Context, ip net.IP, port int, sni string, timeout time
 		return 0, false
 	}
 	lat := time.Since(start)
-	conn.Close()
+	_ = conn.Close()
 	return lat, true
 }
 
@@ -310,7 +330,7 @@ func probeTrace(ctx context.Context, ip net.IP, port int, host string, timeout t
 		return 0, false, 0, ""
 	}
 	lat = time.Since(start)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	tlsOk = resp.TLS != nil
 	httpStatus = resp.StatusCode
@@ -357,7 +377,7 @@ func probeWebSocket(ctx context.Context, ip net.IP, port int, sni, host, path st
 	if err != nil {
 		return false
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	tlsConn := tls.Client(conn, &tls.Config{
 		ServerName:         sni,
@@ -483,7 +503,7 @@ func probeStability(ctx context.Context, ip net.IP, port int, sni string, timeou
 	defer handshakeCancel()
 
 	if err := tlsConn.HandshakeContext(handshakeCtx); err != nil {
-		conn.Close()
+		_ = conn.Close()
 		return false
 	}
 
@@ -506,7 +526,7 @@ func probeStability(ctx context.Context, ip net.IP, port int, sni string, timeou
 	_ = tlsConn.SetReadDeadline(idleDeadline)
 	buf := make([]byte, 1)
 	_, err = tlsConn.Read(buf)
-	tlsConn.Close()
+	_ = tlsConn.Close()
 
 	// A timeout here is EXPECTED (server didn't send data during idle).
 	// Any other error (RST, EOF) means the connection was killed by DPI.
@@ -558,7 +578,7 @@ func probeDownload(ctx context.Context, ip net.IP, port int, timeout time.Durati
 	if err != nil {
 		return 0
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 400 {
 		return 0
 	}

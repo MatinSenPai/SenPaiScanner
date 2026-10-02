@@ -60,7 +60,8 @@ func New(path string, fmt Format) (*Writer, error) {
 		w.csv = csv.NewWriter(f)
 		_ = w.csv.Write([]string{
 			"ip", "loss_pct", "avg_ms", "min_ms", "max_ms",
-			"jitter_ms", "download_kbps", "speed_tested", "colo", "tls_ok", "ws_ok", "http_status",
+			"p95_ms", "p90_ms", "jitter_ms", "download_kbps", "speed_tested",
+			"colo", "tls_ok", "ws_ok", "http_status",
 		})
 		w.csv.Flush()
 	}
@@ -101,6 +102,8 @@ func (w *Writer) writeCSV(r *result.Result) error {
 		fmt.Sprintf("%.2f", float64(r.Avg().Milliseconds())),
 		fmt.Sprintf("%.2f", float64(r.Min().Milliseconds())),
 		fmt.Sprintf("%.2f", float64(r.Max().Milliseconds())),
+		fmt.Sprintf("%.2f", float64(r.P95().Milliseconds())),
+		fmt.Sprintf("%.2f", float64(r.P90().Milliseconds())),
 		fmt.Sprintf("%.2f", float64(r.Jitter().Milliseconds())),
 		fmt.Sprintf("%.1f", r.Throughput/1024),
 		boolStr(r.SpeedTested),
@@ -109,7 +112,7 @@ func (w *Writer) writeCSV(r *result.Result) error {
 		boolStr(r.WSOk),
 		fmt.Sprintf("%d", r.HTTPStatus),
 	}
-	w.csv.Write(row)
+	_ = w.csv.Write(row)
 	w.csv.Flush()
 	return w.csv.Error()
 }
@@ -122,6 +125,8 @@ func (w *Writer) writeJSON(r *result.Result) error {
 		AvgMs       float64 `json:"avg_ms"`
 		MinMs       float64 `json:"min_ms"`
 		MaxMs       float64 `json:"max_ms"`
+		P95Ms       float64 `json:"p95_ms"`
+		P90Ms       float64 `json:"p90_ms"`
 		JitterMs    float64 `json:"jitter_ms"`
 		DownloadKB  float64 `json:"download_kbps,omitempty"`
 		SpeedTested bool    `json:"speed_tested,omitempty"`
@@ -136,6 +141,8 @@ func (w *Writer) writeJSON(r *result.Result) error {
 		AvgMs:       ms(r.Avg()),
 		MinMs:       ms(r.Min()),
 		MaxMs:       ms(r.Max()),
+		P95Ms:       ms(r.P95()),
+		P90Ms:       ms(r.P90()),
 		JitterMs:    ms(r.Jitter()),
 		DownloadKB:  r.Throughput / 1024,
 		SpeedTested: r.SpeedTested,

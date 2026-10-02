@@ -14,6 +14,7 @@ import (
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
+	"github.com/matinsenpai/senpaiscanner/internal/config"
 	"github.com/matinsenpai/senpaiscanner/internal/export"
 	"github.com/matinsenpai/senpaiscanner/internal/ipsrc"
 	"github.com/matinsenpai/senpaiscanner/internal/prober"
@@ -68,6 +69,9 @@ type PresetData struct {
 	WorkerValues    []string `json:"workerValues"`
 	TimeoutLabels   []string `json:"timeoutLabels"`
 	TimeoutValues   []string `json:"timeoutValues"`
+	TriesLabels     []string `json:"triesLabels"`
+	TriesValues     []string `json:"triesValues"`
+	DefaultTriesIdx int      `json:"defaultTriesIdx"`
 	TopNLabels      []string `json:"topNLabels"`
 	TopNValues      []string `json:"topNValues"`
 	MinSpeedLabels  []string `json:"minSpeedLabels"`
@@ -82,6 +86,7 @@ func (a *App) Presets() PresetData {
 	count := ui.ConfigCountPresets()
 	workers := ui.ConfigWorkerPresets()
 	timeout := ui.ConfigTimeoutPresets()
+	tries := ui.ConfigTriesPresets()
 	topN := ui.ConfigTopNPresets()
 	minSpeed := ui.ConfigMinSpeedPresets()
 	speedSize := ui.ConfigSpeedSizePresets()
@@ -92,6 +97,9 @@ func (a *App) Presets() PresetData {
 		WorkerValues:    workers.Values,
 		TimeoutLabels:   timeout.Labels,
 		TimeoutValues:   timeout.Values,
+		TriesLabels:     tries.Labels,
+		TriesValues:     tries.Values,
+		DefaultTriesIdx: ui.DefaultTriesIdx(),
 		TopNLabels:      topN.Labels,
 		TopNValues:      topN.Values,
 		MinSpeedLabels:  minSpeed.Labels,
@@ -131,12 +139,30 @@ type ScanParams struct {
 	WorkersCustom   string `json:"workersCustom"`
 	TimeoutIdx      int    `json:"timeoutIdx"`
 	TimeoutCustom   string `json:"timeoutCustom"`
+	TriesIdx        int    `json:"triesIdx"`
+	TriesCustom     string `json:"triesCustom"`
 	TopNIdx         int    `json:"topNIdx"`
 	TopNCustom      string `json:"topNCustom"`
 	MinSpeedIdx     int    `json:"minSpeedIdx"`
 	MinSpeedCustom  string `json:"minSpeedCustom"`
 	SpeedSizeIdx    int    `json:"speedSizeIdx"`
 	SpeedSizeCustom string `json:"speedSizeCustom"`
+}
+
+// resolveTries turns the tries preset index (or its custom string) into a
+// probe count, falling back to the factory default on anything unusable.
+func (p ScanParams) resolveTries() int {
+	labels := ui.ConfigTriesPresets().Values
+	if p.TriesIdx >= 0 && p.TriesIdx < len(labels) {
+		raw := labels[p.TriesIdx]
+		if raw == "" {
+			raw = p.TriesCustom
+		}
+		if n, err := strconv.Atoi(strings.TrimSpace(raw)); err == nil && n > 0 {
+			return n
+		}
+	}
+	return config.ScanDefaults.Tries
 }
 
 func (p ScanParams) toSavedConfig() ui.SavedConfig {
@@ -152,6 +178,8 @@ func (p ScanParams) toSavedConfig() ui.SavedConfig {
 		WorkersCustom:   p.WorkersCustom,
 		TimeoutIdx:      p.TimeoutIdx,
 		TimeoutCustom:   p.TimeoutCustom,
+		TriesIdx:        p.TriesIdx,
+		TriesCustom:     p.TriesCustom,
 		Ports:           ports,
 		ConfigURL:       strings.TrimSpace(p.ConfigURL),
 		TopNIdx:         p.TopNIdx,
@@ -277,7 +305,7 @@ func (a *App) runScan(ctx context.Context, scanID int64, params ScanParams) {
 	}
 
 	// Probe config: exact CLI derivation.
-	probeCfg, err := ui.Phase1ProbeConfig(configURL, timeout, params.RequireWS)
+	probeCfg, err := ui.Phase1ProbeConfig(configURL, timeout, params.RequireWS, params.resolveTries())
 	if err != nil {
 		a.emit(scanID, "scan:error", fmt.Sprintf("invalid URL: %v", err))
 		a.emit(scanID, "scan:done", map[string]any{"cancelled": false})

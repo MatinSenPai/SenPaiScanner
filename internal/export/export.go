@@ -67,7 +67,9 @@ func ParseEndpoints(raw []string) []Endpoint {
 		port := 0
 		if i := strings.LastIndex(r, ":"); i != -1 {
 			ip = r[:i]
-			fmt.Sscanf(r[i+1:], "%d", &port)
+			// A port that does not parse keeps the zero value; the entry is
+			// skipped by the validation below.
+			_, _ = fmt.Sscanf(r[i+1:], "%d", &port)
 		}
 		if ip == "" {
 			continue

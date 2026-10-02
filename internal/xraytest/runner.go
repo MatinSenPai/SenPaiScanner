@@ -97,14 +97,14 @@ func validateOnce(ctx context.Context, cfg *VLESSConfig, timeout time.Duration) 
 		res.Error = fmt.Sprintf("create temp file: %v", err)
 		return res
 	}
-	defer os.Remove(tmpFile.Name())
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
 
 	if _, err := tmpFile.Write(configJSON); err != nil {
-		tmpFile.Close()
+		_ = tmpFile.Close()
 		res.Error = fmt.Sprintf("write config: %v", err)
 		return res
 	}
-	tmpFile.Close()
+	_ = tmpFile.Close()
 
 	var instance *xcore.Instance
 	err = withSuppressedXrayOutput(func() error {
@@ -112,7 +112,7 @@ func validateOnce(ctx context.Context, cfg *VLESSConfig, timeout time.Duration) 
 		if err != nil {
 			return fmt.Errorf("reopen config: %w", err)
 		}
-		defer tmpFile2.Close()
+		defer func() { _ = tmpFile2.Close() }()
 
 		jsonConfig, err := serial.DecodeJSONConfig(tmpFile2)
 		if err != nil {
@@ -130,7 +130,7 @@ func validateOnce(ctx context.Context, cfg *VLESSConfig, timeout time.Duration) 
 		}
 
 		if err := instance.Start(); err != nil {
-			instance.Close()
+			_ = instance.Close()
 			instance = nil
 			return fmt.Errorf("start xray: %w", err)
 		}
@@ -143,7 +143,7 @@ func validateOnce(ctx context.Context, cfg *VLESSConfig, timeout time.Duration) 
 	defer func() {
 		_ = withSuppressedXrayOutput(func() error {
 			if instance != nil {
-				instance.Close()
+				_ = instance.Close()
 			}
 			return nil
 		})
@@ -319,7 +319,7 @@ func proxyRelaxedEndpointCheck(ctx context.Context, proxyAddr, targetURL, author
 	}
 	n, _ := io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
 	status := resp.StatusCode
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if status >= 500 {
 		return false, latency, fmt.Errorf("HTTP %d", status)
 	}
@@ -468,7 +468,7 @@ func proxyConnectivityCheckTarget(ctx context.Context, proxyAddr, target, author
 	if err != nil {
 		return false, latency, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 400 {
 		return false, latency, fmt.Errorf("HTTP %d", resp.StatusCode)
@@ -621,8 +621,8 @@ func uploadThroughProxy(ctx context.Context, proxyAddr, uploadURL string, maxByt
 	if err != nil {
 		return 0, 0, err
 	}
-	defer resp.Body.Close()
-	io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+	defer func() { _ = resp.Body.Close() }()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
 
 	if !relaxed && (resp.StatusCode < 200 || resp.StatusCode >= 400) {
 		return 0, 0, fmt.Errorf("HTTP %d", resp.StatusCode)
@@ -765,10 +765,6 @@ func burstProxyThroughput(ctx context.Context, proxyAddr, url string, targetByte
 	return total, float64(total) / elapsed
 }
 
-func proxyTransport(proxyAddr string) *http.Transport {
-	return proxyTransportForTarget(proxyAddr, "", "")
-}
-
 // proxyTransportForTarget builds a SOCKS transport. When the probe URL dials a
 // literal IP but the HTTP authority is a domain (typical CF IP scans), TLS must
 // use the domain as ServerName — req.Host alone does not fix the ClientHello.
@@ -839,7 +835,7 @@ func downloadThroughProxy(ctx context.Context, proxyAddr, dlURL string, maxBytes
 	if err != nil {
 		return 0, 0, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if !relaxed && (resp.StatusCode < 200 || resp.StatusCode >= 400) {
 		return 0, 0, fmt.Errorf("HTTP %d", resp.StatusCode)
@@ -862,7 +858,7 @@ func waitForPort(port int, timeout time.Duration) bool {
 	for time.Now().Before(deadline) {
 		conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), 200*time.Millisecond)
 		if err == nil {
-			conn.Close()
+			_ = conn.Close()
 			return true
 		}
 		time.Sleep(100 * time.Millisecond)
@@ -893,7 +889,7 @@ func suppressXrayOutput() func() {
 	return func() {
 		os.Stdout = oldStdout
 		os.Stderr = oldStderr
-		devNull.Close()
+		_ = devNull.Close()
 		stdioMu.Unlock()
 	}
 }
