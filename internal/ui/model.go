@@ -2147,15 +2147,23 @@ func (m AppModel) viewScanWithConfig() string {
 			line += fmt.Sprintf("  %8s  %6s", formatValidationLatency(r.Latency), "✓")
 			sb.WriteString(styleGood.Render(line) + "\n")
 		} else {
+			// Surface the failure reason. This value used to be computed and
+			// then discarded, so a failed xray validation rendered as a bare
+			// cross with no explanation of what actually went wrong.
 			errMsg := r.Error
+			if errMsg == "" {
+				errMsg = "validation failed"
+			}
 			if len(errMsg) > 20 {
 				errMsg = errMsg[:20] + "…"
 			}
-			line := fmt.Sprintf("  %-22s  %-8s  %9s", formatEndpoint(r.IP, r.Port), r.Transport, "—")
+			// %8s, not %9s: the header declares SPEED as 8 wide, so a 9-wide
+			// placeholder pushed every failed row one character past the rule.
+			line := fmt.Sprintf("  %-22s  %-8s  %8s", formatEndpoint(r.IP, r.Port), r.Transport, "—")
 			if uploadCol {
 				line += fmt.Sprintf("  %8s", "—")
 			}
-			line += fmt.Sprintf("  %8s  %6s", "—", "✗")
+			line += fmt.Sprintf("  %8s  %6s  %-20s", "—", "✗", errMsg)
 			sb.WriteString(styleBad.Render(line) + "\n")
 		}
 	}
