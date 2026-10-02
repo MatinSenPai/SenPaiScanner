@@ -542,6 +542,7 @@ phase1Done:
 		}()
 
 		// Phase 2 validation loop
+	phase2Loop:
 		for _, r := range phase1Results {
 			if ctx.Err() != nil {
 				break
@@ -577,7 +578,12 @@ phase1Done:
 				success:          vr.Success,
 			}:
 			case <-ctx.Done():
-				break
+				// A bare break would only leave the select, not the loop, so a
+				// cancelled scan would keep validating every remaining IP. The
+				// label targets the for loop. Control falls through to the
+				// channel close and callbackWg.Wait() below, which must still
+				// run or the callback goroutine leaks.
+				break phase2Loop
 			}
 		}
 
