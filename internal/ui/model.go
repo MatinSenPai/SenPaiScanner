@@ -2162,15 +2162,18 @@ func (m AppModel) viewScanWithConfig() string {
 			line += fmt.Sprintf("  %8s  %6s", formatValidationLatency(r.Latency), "✓")
 			sb.WriteString(styleGood.Render(line) + "\n")
 		} else {
-			errMsg := r.Error
-			if len(errMsg) > 20 {
-				errMsg = errMsg[:20] + "…"
+			errMsg := []rune(r.Error)
+			if len(errMsg) > 28 {
+				errMsg = append(errMsg[:28], '…')
 			}
 			line := fmt.Sprintf("  %-22s  %-8s  %9s", formatEndpoint(r.IP, r.Port), r.Transport, "—")
 			if uploadCol {
 				line += fmt.Sprintf("  %8s", "—")
 			}
 			line += fmt.Sprintf("  %8s  %6s", "—", "✗")
+			if len(errMsg) > 0 {
+				line += "  " + string(errMsg)
+			}
 			sb.WriteString(styleBad.Render(line) + "\n")
 		}
 	}
@@ -3142,9 +3145,7 @@ func (m AppModel) handleConfigPhase1Key(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 	case "esc", "q":
-		if scanCancel != nil {
-			scanCancel()
-		}
+		cancelActiveScan()
 		clearLiveResultWriter()
 		m.page = PageHome
 		return m, nil
