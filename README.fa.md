@@ -1,8 +1,4 @@
-<p align="center">
-  <img src="logo/logo.png" width="220" alt="لوگوی SenPai Scanner">
-</p>
-
-<h1 align="center">SenPai Scanner</h1>
+<p align="center"><img src="logo/banner.png" alt="SenPai/Scan" width="100%"></p>
 
 <p align="center">
   <strong>پیدا کردن، اعتبارسنجی، رتبه‌بندی و خروجی گرفتن از endpointهای پایدار Cloudflare</strong><br>
@@ -27,7 +23,7 @@
 
 SenPai Scanner یک اسکنر چندسکویی برای endpointهای Cloudflare است که برای شبکه‌های ناپایدار، فیلترشده یا پرتأخیر طراحی شده. ابزار ابتدا edgeهای Cloudflare را سریع بررسی می‌کند، سپس می‌تواند بهترین کاندیداها را با هسته داخلی Xray و کانفیگ واقعی شما end-to-end آزمایش کند و در پایان خروجی آماده استفاده در کلاینت‌ها بسازد.
 
-نسخه **1.0.0** رابط بازطراحی‌شده **Signal Desk** را به GUI دسکتاپ و اپ اندروید می‌آورد: فضای جداگانه Scan، Results و Export، کپی زنده نتایج، تست سرعت بعد از Stop، اسکن همسایه اختیاری و تشخیص مقاوم‌تر ISP.
+نسخه **1.1.0** قابلیت واقعی **Anti-DPI** (تکه‌تکه کردن ClientHello در TLS با مقادیر قابل ویرایش) را به همه‌ی probeها و تست تونل اضافه می‌کند و ظاهر جدید سیاه / سفید / قرمز را به GUI دسکتاپ، اپ اندروید و رابط ترمینال می‌آورد، همراه با لوگو و بنر جدید.
 
 ## چرا کاربردی است؟
 
@@ -94,18 +90,27 @@ flowchart LR
 - ساخت Base64 subscription، فایل Sing-box JSON و Clash YAML.
 - جداسازی کامل Results و Export تا خروجی گرفتن مزاحم بررسی نتایج نشود.
 
-## دانلود نسخه 1.0.0
+### Anti-DPI
 
-فایل مناسب سیستم خود را از [GitHub Releases](https://github.com/MatinSenPai/SenPaiScanner/releases/latest) دریافت کنید. workflow نسخه `v1.0.0` همه رابط‌ها را با هم می‌سازد و فایل `SHA256SUMS.txt` را نیز منتشر می‌کند.
+دستگاه‌های DPI معمولاً SNI را در اولین بسته‌ی TLS تشخیص می‌دهند. وقتی Anti-DPI روشن باشد، اسکنر قبل از خروج از سیستم شما ClientHello را به تکه‌های کوچک تقسیم می‌کند؛ هم برای **همه‌ی probeها** و هم برای **تست تونل با xray**.
+
+- مقادیر پیش‌فرض همان مقادیر منتشرشده در [t.me/MatinSenPaii/5469](https://t.me/MatinSenPaii/5469) هستند: ماسک `tlshello` با `lengths 0/104/1` و ماسک بسته‌ی اول با `lengths 114/1` و `delay 1ms` و `maxSplit 11`، fingerprint برابر `unsafe`، ALPN برابر `http/1.1` و فهرست cipher suiteهای همان پست.
+- همه‌ی فیلدها در برنامه‌ی دسکتاپ قابل ویرایش‌اند (بخش **02 Anti-DPI** با دکمه‌ی **Suggested values**). در TUI یک ردیف روشن/خاموش در صفحه‌ی تنظیمات هست و مقادیر از `anti_dpi` در فایل تنظیمات خوانده می‌شود. اپ اندروید همین کلید را از طریق `antiDpi` در تنظیمات اسکن می‌گیرد.
+- فقط ماسک `fragment` پشتیبانی می‌شود و بقیه‌ی انواع به‌جای نادیده گرفته شدن گزارش می‌شوند. استک TLS در Go فقط اجازه‌ی انتخاب cipherهای TLS 1.2 را می‌دهد؛ پس موارد TLS 1.3 در probeهای مستقیم رد می‌شوند.
+- xray-core رسمی `lengths` / `delays` برای هر قطعه را نمی‌فهمد؛ بنابراین fragmentation در یک forwarder محلی کوچک جلوی outbound اجرا می‌شود (`internal/antidpi`).
+
+## دانلود نسخه 1.1.0
+
+فایل مناسب سیستم خود را از [GitHub Releases](https://github.com/MatinSenPai/SenPaiScanner/releases/latest) دریافت کنید. workflow نسخه `v1.1.0` همه رابط‌ها را با هم می‌سازد و فایل `SHA256SUMS.txt` را نیز منتشر می‌کند.
 
 ### GUI دسکتاپ
 
 | پلتفرم | فایل Release |
 |---|---|
-| Windows x64 | `SenPaiScanner-1.0.0-gui-windows-amd64.zip` |
-| Linux x64 | `SenPaiScanner-1.0.0-gui-linux-amd64.tar.gz` |
-| macOS Intel | `SenPaiScanner-1.0.0-gui-macos-intel.zip` |
-| macOS Apple Silicon | `SenPaiScanner-1.0.0-gui-macos-apple-silicon.zip` |
+| Windows x64 | `SenPaiScanner-1.1.0-gui-windows-amd64.zip` |
+| Linux x64 | `SenPaiScanner-1.1.0-gui-linux-amd64.tar.gz` |
+| macOS Intel | `SenPaiScanner-1.1.0-gui-macos-intel.zip` |
+| macOS Apple Silicon | `SenPaiScanner-1.1.0-gui-macos-apple-silicon.zip` |
 
 فایل اجرایی Windows و اپ Android از تصویر شفاف [`logo/logo.png`](logo/logo.png) استفاده می‌کنند.
 
@@ -113,27 +118,27 @@ flowchart LR
 
 | پلتفرم | فایل Release |
 |---|---|
-| Windows x64 | `SenPaiScanner-1.0.0-cli-windows-amd64.exe` |
-| Windows ARM64 | `SenPaiScanner-1.0.0-cli-windows-arm64.exe` |
-| Linux x64 | `SenPaiScanner-1.0.0-cli-linux-amd64` |
-| Linux ARM64 / Termux | `SenPaiScanner-1.0.0-cli-linux-arm64` |
-| macOS Intel | `SenPaiScanner-1.0.0-cli-macos-intel` |
-| macOS Apple Silicon | `SenPaiScanner-1.0.0-cli-macos-apple-silicon` |
+| Windows x64 | `SenPaiScanner-1.1.0-cli-windows-amd64.exe` |
+| Windows ARM64 | `SenPaiScanner-1.1.0-cli-windows-arm64.exe` |
+| Linux x64 | `SenPaiScanner-1.1.0-cli-linux-amd64` |
+| Linux ARM64 / Termux | `SenPaiScanner-1.1.0-cli-linux-arm64` |
+| macOS Intel | `SenPaiScanner-1.1.0-cli-macos-intel` |
+| macOS Apple Silicon | `SenPaiScanner-1.1.0-cli-macos-apple-silicon` |
 
 در Linux و macOS بعد از دانلود، فایل CLI را executable کنید:
 
 ```bash
-chmod +x SenPaiScanner-1.0.0-cli-*
-./SenPaiScanner-1.0.0-cli-linux-amd64
+chmod +x SenPaiScanner-1.1.0-cli-*
+./SenPaiScanner-1.1.0-cli-linux-amd64
 ```
 
 ### اندروید
 
 | فایل Release | دستگاه |
 |---|---|
-| `SenPaiScanner-1.0.0-android-universal.apk` | نسخه پیشنهادی برای sideload روی همه ABIهای پشتیبانی‌شده |
-| `SenPaiScanner-1.0.0-android-arm64-v8a.apk` | بیشتر گوشی‌های ۶۴ بیتی امروزی |
-| `SenPaiScanner-1.0.0-android-armeabi-v7a.apk` | دستگاه‌های قدیمی ۳۲ بیتی ARM |
+| `SenPaiScanner-1.1.0-android-universal.apk` | نسخه پیشنهادی برای sideload روی همه ABIهای پشتیبانی‌شده |
+| `SenPaiScanner-1.1.0-android-arm64-v8a.apk` | بیشتر گوشی‌های ۶۴ بیتی امروزی |
+| `SenPaiScanner-1.1.0-android-armeabi-v7a.apk` | دستگاه‌های قدیمی ۳۲ بیتی ARM |
 
 حداقل نسخه اندروید API 24 است. هنگام sideload ممکن است لازم باشد اجازه «Install unknown apps» را برای برنامه‌ای که APK را باز می‌کند فعال کنید.
 
@@ -168,7 +173,7 @@ senpaiscanner --version
 pkg update
 pkg install curl -y
 curl -fL -o "$PREFIX/bin/senpaiscanner" \
-  https://github.com/MatinSenPai/SenPaiScanner/releases/download/v1.0.0/SenPaiScanner-1.0.0-cli-linux-arm64
+  https://github.com/MatinSenPai/SenPaiScanner/releases/download/v1.1.0/SenPaiScanner-1.1.0-cli-linux-arm64
 chmod +x "$PREFIX/bin/senpaiscanner"
 senpaiscanner
 ```
@@ -195,7 +200,7 @@ go build -trimpath -o senpaiscanner ./cmd/senpaiscanner
 در Windows می‌توانید مجموعه versioned همه CLIها را بسازید:
 
 ```powershell
-./build.ps1 -Version 1.0.0
+./build.ps1 -Version 1.1.0
 ```
 
 ### ساخت GUI دسکتاپ
@@ -205,7 +210,7 @@ Wails را نصب و از پوشه `desktop` build بگیرید:
 ```powershell
 go install github.com/wailsapp/wails/v2/cmd/wails@v2.11.0
 cd desktop
-./build_gui.ps1 -Version 1.0.0
+./build_gui.ps1 -Version 1.1.0
 ```
 
 Linux به development packageهای GTK 3 و WebKitGTK 4.1 نیاز دارد. macOS نیز باید با toolchain بومی Xcode ساخته شود. GitHub Actions هر GUI را روی سیستم‌عامل مقصد build می‌کند.
@@ -245,9 +250,9 @@ build هر پلتفرم workflow مستقل دارد و در پایان همه �
 | [`build-cli.yml`](.github/workflows/build-cli.yml) | شش خروجی versioned برای CLI |
 | [`build-gui.yml`](.github/workflows/build-gui.yml) | بسته native برای Windows، Linux، macOS Intel و Apple Silicon |
 | [`build-android.yml`](.github/workflows/build-android.yml) | Go mobile bridge، تست و lint اندروید، APKهای ABI و APK universal |
-| [`release.yml`](.github/workflows/release.yml) | انتشار کامل **v1.0.0** و checksumهای SHA-256 |
+| [`release.yml`](.github/workflows/release.yml) | انتشار کامل **v1.1.0** و checksumهای SHA-256 |
 
-push کردن tag دقیق `v1.0.0` workflow نهایی انتشار را اجرا می‌کند.
+push کردن tag دقیق `v1.1.0` workflow نهایی انتشار را اجرا می‌کند.
 
 ## ساختار پروژه
 

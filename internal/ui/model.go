@@ -18,6 +18,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/matinsenpai/senpaiscanner/internal/antidpi"
 	"github.com/matinsenpai/senpaiscanner/internal/banner"
 	"github.com/matinsenpai/senpaiscanner/internal/config"
 	"github.com/matinsenpai/senpaiscanner/internal/export"
@@ -62,44 +63,44 @@ type tickMsg time.Time
 
 var (
 	styleBorder = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("#F6821F"))
+			Border(lipgloss.NormalBorder()).
+			BorderForeground(lipgloss.Color("#2B2B2B"))
 
 	styleTitle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("#F6821F"))
+			Foreground(lipgloss.Color("#EE2B38"))
 
 	styleSelected = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("#FFE066")).
-			Background(lipgloss.Color("#1A1A2E"))
+			Foreground(lipgloss.Color("#0A0A0A")).
+			Background(lipgloss.Color("#F4F4F1"))
 
 	styleNormal = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#CCCCCC"))
+			Foreground(lipgloss.Color("#F4F4F1"))
 
 	styleDim = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#555555"))
+			Foreground(lipgloss.Color("#8D8D88"))
 
 	styleGood = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#27AE60")).Bold(true)
+			Foreground(lipgloss.Color("#F4F4F1")).Bold(true)
 
 	styleWarn = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#F39C12"))
+			Foreground(lipgloss.Color("#8D8D88"))
 
 	styleBad = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#E74C3C"))
+			Foreground(lipgloss.Color("#EE2B38"))
 
 	styleAccent = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#F6821F")).Bold(true)
+			Foreground(lipgloss.Color("#EE2B38")).Bold(true)
 
 	styleHint = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#444466")).Italic(true)
+			Foreground(lipgloss.Color("#8D8D88")).Italic(true)
 
 	styleHeader = lipgloss.NewStyle().
-			Bold(true).Foreground(lipgloss.Color("#888888"))
+			Bold(true).Foreground(lipgloss.Color("#8D8D88"))
 
 	styleSep = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#333333"))
+			Foreground(lipgloss.Color("#2B2B2B"))
 )
 
 // ---------------------------------------------------------------------------
@@ -230,7 +231,7 @@ type AppModel struct {
 	configURL      string
 	configCountIdx int // index into configCountValues
 	configTopNIdx  int // index into configTopNValues
-	configSetupRow int // 0=source, 1=count, 2=workers, 3=timeout, 4=ports, 5=WebSocket, 6=neighbors
+	configSetupRow int // 0=source, 1=count, 2=workers, 3=timeout, 4=ports, 5=WebSocket, 6=neighbors, 7=anti-dpi
 	// quick-scan-style pickers for Phase 1
 	configWorkersIdx    int
 	configTimeoutIdx    int
@@ -313,6 +314,9 @@ type SavedConfig struct {
 	UploadTest      bool   `json:"upload_test"`
 	RequireWS       bool   `json:"require_ws"`
 	NeighborScan    bool   `json:"neighbor_scan"`
+
+	// AntiDPI is the editable recipe (empty in files from before Anti-DPI = published defaults).
+	AntiDPI antidpi.Profile `json:"anti_dpi"`
 }
 
 // AppConfig wraps SavedConfig to allow for future settings.
@@ -382,6 +386,7 @@ func defaultAppConfig() AppConfig {
 }
 
 func (m *AppModel) applySavedConfig(cfg SavedConfig) {
+	SetAntiDPI(cfg.AntiDPI)
 	m.configIPMode = cfg.IPMode
 	m.configCountIdx = cfg.CountIdx
 	m.configCountCustom = cfg.CountCustom
@@ -416,7 +421,7 @@ func (m *AppModel) applySavedConfig(cfg SavedConfig) {
 func NewApp(version string) AppModel {
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
-	sp.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#F6821F"))
+	sp.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#EE2B38"))
 
 	customInput := textinput.New()
 	customInput.Placeholder = "e.g. 50000"
@@ -1348,7 +1353,7 @@ func (m AppModel) viewQuickScanCount() string {
 
 	sb.WriteString(banner.Render(m.bannerFrame / 2))
 	sb.WriteRune('\n')
-	sb.WriteString(styleTitle.Render("  ⚡  Quick Scan Setup\n"))
+	sb.WriteString(styleTitle.Render("  01 / Quick Scan Setup\n"))
 	sb.WriteString(separator)
 
 	type rowDef struct {
@@ -1443,7 +1448,7 @@ func (m AppModel) viewQuickScanCount() string {
 func (m AppModel) viewScanConfig() string {
 	var sb strings.Builder
 
-	sb.WriteString(styleTitle.Render("\n  ⚙  Custom Scan Configuration\n"))
+	sb.WriteString(styleTitle.Render("\n  01 / Custom Scan Configuration\n"))
 	sb.WriteString(fmt.Sprintf("%s\n\n",
 		styleSep.Render("  "+strings.Repeat("─", 56)),
 	))
@@ -1514,7 +1519,7 @@ func (m AppModel) viewScanConfig() string {
 func (m AppModel) viewLiveScan() string {
 	var sb strings.Builder
 
-	sb.WriteString(styleTitle.Render("\n  ⚡  Live Scan\n"))
+	sb.WriteString(styleTitle.Render("\n  02 / Live Scan\n"))
 	sb.WriteString(fmt.Sprintf("%s\n\n", styleSep.Render("  "+strings.Repeat("─", minInt(m.width-4, 70)))))
 
 	// Stats row
@@ -1610,7 +1615,7 @@ func (m AppModel) viewLiveScan() string {
 func (m AppModel) viewResults() string {
 	var sb strings.Builder
 
-	sb.WriteString(styleTitle.Render("\n  ✅  Scan Results\n"))
+	sb.WriteString(styleTitle.Render("\n  03 / Scan Results\n"))
 	sb.WriteString(fmt.Sprintf("%s\n\n", styleSep.Render("  "+strings.Repeat("─", 60))))
 
 	top := result.TopN(m.scanResults, 20)
@@ -1668,7 +1673,7 @@ func (m AppModel) viewResults() string {
 func (m AppModel) viewLiveColos() string {
 	var sb strings.Builder
 
-	sb.WriteString(styleTitle.Render("\n  🌍  Discovering Cloudflare PoPs\n"))
+	sb.WriteString(styleTitle.Render("\n  02 / Discovering Cloudflare PoPs\n"))
 	sb.WriteString(fmt.Sprintf("%s\n\n", styleSep.Render("  "+strings.Repeat("─", 56))))
 
 	if !m.colosDone {
@@ -1922,7 +1927,7 @@ func (m *AppModel) toggleFocusedConfigPort() {
 func (m AppModel) viewScanWithConfig() string {
 	var sb strings.Builder
 
-	title := "\n  ⚡  Find Working IPs"
+	title := "\n  01 / Find Working IPs"
 	if m.ispInfo != "" {
 		title += "  " + styleAccent.Render(fmt.Sprintf("[%s]", m.ispInfo))
 	}
@@ -2051,6 +2056,16 @@ func (m AppModel) viewScanWithConfig() string {
 		}
 		sb.WriteString(neighbors + "\n")
 		sb.WriteString(styleDim.Render("            optionally probe nearby addresses after a healthy hit (space/arrows toggle)") + "\n\n")
+
+		// Row 7: Anti-DPI
+		rowLabel(7, "  Anti-DPI")
+		sb.WriteString(" ")
+		adpi := styleBad.Render("OFF")
+		if CurrentAntiDPI().Enabled {
+			adpi = styleGood.Render("ON")
+		}
+		sb.WriteString(adpi + "\n")
+		sb.WriteString(styleDim.Render("            fragment the TLS ClientHello (tlshello 0/104/1 + 114/1); edit values in anti_dpi of the config file or in the desktop app") + "\n\n")
 
 		hint := "  ↑/↓ row   ←/→ option   enter continue   esc back"
 		if m.configCustomMode {
@@ -2259,7 +2274,7 @@ func (m AppModel) handleScanWithConfigKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	// --- Setup navigation (Source → Count → Workers → Timeout → Ports → WebSocket → Neighbors) ---
-	const maxRow = 6
+	const maxRow = 7
 
 	configNavLeft := func() {
 		switch m.configSetupRow {
@@ -2287,6 +2302,8 @@ func (m AppModel) handleScanWithConfigKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.scanCfg.RequireWS = !m.scanCfg.RequireWS
 		case 6:
 			m.configNeighborScan = !m.configNeighborScan
+		case 7:
+			ToggleAntiDPI()
 		}
 	}
 	configNavRight := func() {
@@ -2315,6 +2332,8 @@ func (m AppModel) handleScanWithConfigKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.scanCfg.RequireWS = !m.scanCfg.RequireWS
 		case 6:
 			m.configNeighborScan = !m.configNeighborScan
+		case 7:
+			ToggleAntiDPI()
 		}
 	}
 
@@ -2350,6 +2369,10 @@ func (m AppModel) handleScanWithConfigKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		if m.configSetupRow == 6 {
 			m.configNeighborScan = !m.configNeighborScan
+			return m, nil
+		}
+		if m.configSetupRow == 7 {
+			ToggleAntiDPI()
 			return m, nil
 		}
 	case "enter":
@@ -2393,7 +2416,7 @@ func (m AppModel) handleScanWithConfigKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m AppModel) viewConfigOptional() string {
 	var sb strings.Builder
-	sb.WriteString(styleTitle.Render("\n  ⚡  Find Working IPs — optional config\n"))
+	sb.WriteString(styleTitle.Render("\n  01 / Find Working IPs — optional config\n"))
 	sb.WriteString(fmt.Sprintf("%s\n\n", styleSep.Render("  "+strings.Repeat("─", minInt(m.width-4, 70)))))
 
 	rowLabel := func(row int, text string) {
@@ -2763,6 +2786,7 @@ func (m AppModel) launchPhase1FromOptional() (AppModel, tea.Cmd) {
 		UploadTest:      m.configUploadTest,
 		RequireWS:       m.scanCfg.RequireWS,
 		NeighborScan:    m.configNeighborScan,
+		AntiDPI:         CurrentAntiDPI(),
 	}
 	for port, on := range m.configSelectedPorts {
 		if on {
@@ -2832,6 +2856,7 @@ func runConfigScan(rawURL string) {
 
 	for i, ip := range testIPs {
 		swapped := cfg.WithAddress(ip)
+		swapped.AntiDPI = CurrentAntiDPI()
 		r := xraytest.ValidateConfig(ctx, swapped, 30*time.Second)
 		if prog != nil {
 			prog.Send(ConfigProgressMsg{
@@ -2902,7 +2927,7 @@ func quickTimeoutLabels() []string {
 func (m AppModel) viewConfigSetup() string {
 	var sb strings.Builder
 
-	sb.WriteString(styleTitle.Render("\n  ⚡  Scan with Config — Setup\n"))
+	sb.WriteString(styleTitle.Render("\n  01 / Scan with Config — Setup\n"))
 	sb.WriteString(fmt.Sprintf("%s\n\n", styleSep.Render("  "+strings.Repeat("─", minInt(m.width-4, 70)))))
 
 	sb.WriteString(styleNormal.Render("  Phase 1: Fast connectivity scan to find reachable IPs") + "\n")
@@ -3013,7 +3038,7 @@ type ConfigPhase1DoneMsg struct{}
 func (m AppModel) viewConfigPhase1() string {
 	var sb strings.Builder
 
-	sb.WriteString(styleTitle.Render("\n  ⚡  Phase 1 — Finding reachable IPs\n"))
+	sb.WriteString(styleTitle.Render("\n  02 / Phase 1 — Finding reachable IPs\n"))
 	sb.WriteString(fmt.Sprintf("%s\n\n", styleSep.Render("  "+strings.Repeat("─", minInt(m.width-4, 70)))))
 
 	icon := m.spinner.View()
@@ -3347,6 +3372,7 @@ func runConfigPhase2(rawURL string, topIPs []*result.Result, minSpeed float64, s
 			defer func() { <-sem }()
 
 			swapped := cfg.WithEndpoint(r.IP.String(), r.Port)
+			swapped.AntiDPI = CurrentAntiDPI()
 			swapped.SpeedURL = speedURL
 			swapped.SpeedSize = speedSize
 			swapped.UploadTest = uploadTest

@@ -56,6 +56,7 @@ type ScanConfig struct {
 	SpeedURL      string  `json:"speedUrl"`
 	SpeedSize     int64   `json:"speedSize"`
 	UploadTest    bool    `json:"uploadTest"`
+	AntiDPI       bool    `json:"antiDpi"` // fragment the ClientHello with the published recipe
 }
 
 func StartScan(configJson string, callback Callback) {
@@ -129,6 +130,7 @@ func runScan(configJson string, callback Callback) {
 		}
 		return
 	}
+	setAntiDPI(cfg.AntiDPI)
 
 	count := 5000
 	if cfg.CountType == "Custom" {
@@ -195,6 +197,7 @@ func runScan(configJson string, callback Callback) {
 			probeCfg.WebSocketPath = xCfg.Path
 		}
 		probeCfg.RequireWebSocket = cfg.RequireWS
+		probeCfg.AntiDPI = ui.CurrentAntiDPI()
 		ports = []int{xCfg.Port}
 	} else {
 		ports = cfg.SelectedPorts
@@ -208,6 +211,7 @@ func runScan(configJson string, callback Callback) {
 			SNI:                "speed.cloudflare.com",
 			InsecureSkipVerify: true,
 			RequireWebSocket:   cfg.RequireWS,
+			AntiDPI:            ui.CurrentAntiDPI(),
 		}
 	}
 
@@ -547,6 +551,7 @@ phase1Done:
 				break
 			}
 			swapped := xCfg.WithEndpoint(r.IP.String(), r.Port)
+			swapped.AntiDPI = ui.CurrentAntiDPI()
 			swapped.SpeedURL = cfg.SpeedURL
 			swapped.SpeedSize = cfg.SpeedSize
 			swapped.UploadTest = cfg.UploadTest
@@ -642,6 +647,7 @@ func runSpeedTest(configJson string, candidates []*result.Result, callback Callb
 		}
 		return
 	}
+	setAntiDPI(cfg.AntiDPI)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -670,6 +676,7 @@ func runSpeedTest(configJson string, candidates []*result.Result, callback Callb
 				return
 			}
 			probe := template.WithEndpoint(candidate.IP.String(), candidate.Port)
+			probe.AntiDPI = ui.CurrentAntiDPI()
 			probe.SpeedURL = cfg.SpeedURL
 			probe.SpeedSize = cfg.SpeedSize
 			probe.UploadTest = cfg.UploadTest
@@ -704,6 +711,7 @@ func runSpeedTest(configJson string, candidates []*result.Result, callback Callb
 		Mode: prober.ModeHTTP, Tries: 1, Timeout: timeout,
 		SNI: "speed.cloudflare.com", SpeedBytes: sampleBytes,
 		InsecureSkipVerify: true,
+		AntiDPI:            ui.CurrentAntiDPI(),
 	}
 	passed := 0
 	for index, candidate := range candidates {

@@ -129,6 +129,7 @@ func runScan(cfg ScanConfig, scanID int64) {
 			SNI:              cfg.SNI,
 			SpeedBytes:       speedSampleForMode(mode),
 			RequireWebSocket: mode == prober.ModeHTTP && cfg.RequireWS,
+			AntiDPI:          CurrentAntiDPI(),
 		},
 	}
 	eng := engine.New(engCfg)
@@ -200,6 +201,7 @@ func runTest(ipFile string, scanID int64) {
 			SNI:              "speed.cloudflare.com",
 			SpeedBytes:       512 * 1024,
 			RequireWebSocket: true,
+			AntiDPI:          CurrentAntiDPI(),
 		},
 	}
 	eng := engine.New(engCfg)
@@ -235,6 +237,7 @@ func runColos(scanID int64) {
 			Tries:      2,
 			Timeout:    5 * time.Second,
 			SpeedBytes: 0,
+			AntiDPI:    CurrentAntiDPI(),
 		},
 	}
 	eng := engine.New(engCfg)
@@ -517,6 +520,7 @@ func defaultPhase1ProbeConfig(timeout time.Duration) prober.Config {
 		Timeout:            timeout,
 		SNI:                "speed.cloudflare.com",
 		InsecureSkipVerify: true,
+		AntiDPI:            CurrentAntiDPI(),
 	}
 }
 
@@ -538,6 +542,7 @@ func configProbeFromURL(rawURL string, timeout time.Duration) (prober.Config, er
 		Timeout:            timeout,
 		SNI:                sni,
 		InsecureSkipVerify: true,
+		AntiDPI:            CurrentAntiDPI(),
 	}
 	if cfg.Network == "ws" {
 		probeCfg.WebSocketHost = cfg.Host

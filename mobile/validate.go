@@ -87,6 +87,13 @@ func mobileValidateOnce(ctx context.Context, cfg *xraytest.VLESSConfig, timeout 
 		Transport: cfg.Network,
 	}
 
+	cfg, stopAntiDPI, err := xraytest.StartAntiDPI(cfg)
+	if err != nil {
+		res.Error = fmt.Sprintf("anti-dpi: %v", err)
+		return res
+	}
+	defer stopAntiDPI()
+
 	socksPort := mobileNextPort()
 
 	configJSON, err := xraytest.BuildXrayConfig(cfg, socksPort)

@@ -10,22 +10,21 @@
   <div class="app-shell">
     <header class="topbar">
       <div class="brand" aria-label="SenPai Scanner">
-        <div class="brand-mark" aria-hidden="true">
-          <svg viewBox="0 0 32 32" fill="none"><path d="M5 22.5 12.2 9l4.1 7.1L20 10l7 12.5"/><path d="M5 25h22"/></svg>
-        </div>
-        <div><strong>SenPai</strong><span>signal scanner</span></div>
+        <img class="brand-mark" src="logo.png" alt="" aria-hidden="true" />
+        <div><strong>SENPAI<i>/</i>SCAN</strong><span>chain ip scanner</span></div>
       </div>
 
       <nav class="tabs" role="tablist" aria-label="Workspace">
-        <button class="tab active" id="tabScan" data-tab="scan" role="tab" aria-selected="true" aria-controls="panelScan">Scan</button>
-        <button class="tab" id="tabResults" data-tab="results" role="tab" aria-selected="false" aria-controls="panelResults">Results <span class="tab-count" id="resultsTabCount">0</span></button>
-        <button class="tab" id="tabExport" data-tab="export" role="tab" aria-selected="false" aria-controls="panelExport">Export <span class="tab-count" id="exportTabCount">0</span></button>
+        <button class="tab active" id="tabScan" data-tab="scan" role="tab" aria-selected="true" aria-controls="panelScan"><span class="n">01</span>scan</button>
+        <button class="tab" id="tabResults" data-tab="results" role="tab" aria-selected="false" aria-controls="panelResults"><span class="n">02</span>results <span class="tab-count" id="resultsTabCount">0</span></button>
+        <button class="tab" id="tabExport" data-tab="export" role="tab" aria-selected="false" aria-controls="panelExport"><span class="n">03</span>export <span class="tab-count" id="exportTabCount">0</span></button>
       </nav>
 
       <div class="network-id" id="ispChip" title="Detecting network…">
         <span class="network-led"></span>
         <span class="network-copy"><strong id="ispText">Detecting ISP…</strong><small id="networkDetail">public network</small></span>
       </div>
+      <button class="theme-btn" id="themeBtn" type="button" title="Dark / light" aria-label="Toggle theme">&#9680;</button>
     </header>
 
     <section class="session-rail" id="sessionRail" data-state="idle" aria-label="Current scan status">
@@ -72,8 +71,23 @@
             </div>
           </section>
 
+          <div class="stack">
+          <section class="surface antidpi-setup" aria-labelledby="antidpiTitle">
+            <header class="surface-head"><div><span class="step-tag">02</span><h2 id="antidpiTitle">Anti-DPI</h2></div><button class="toggle on" id="toggleAntiDpi" role="switch" aria-checked="true" aria-label="Anti-DPI"><span></span></button></header>
+            <p class="section-copy">Cuts the TLS ClientHello into small pieces so deep-packet inspection cannot match the SNI. Applied to every probe and to the tunnel test.</p>
+            <div class="collapse" id="antidpiBody"><div>
+              <div class="form-grid">
+                <div class="field full"><label for="adFinalmask">Finalmask (fragment)</label><textarea class="input mono" id="adFinalmask" rows="5" spellcheck="false"></textarea><small id="adError" class="err" hidden></small></div>
+                <div class="field"><label for="adFingerprint">Fingerprint</label><input class="input mono" id="adFingerprint" spellcheck="false" /></div>
+                <div class="field"><label for="adAlpn">ALPN</label><input class="input mono" id="adAlpn" spellcheck="false" /></div>
+                <div class="field full"><label for="adCiphers">Cipher suites</label><textarea class="input mono" id="adCiphers" rows="3" spellcheck="false"></textarea></div>
+                <div class="field full"><div class="button-row"><button class="button small" id="btnAdDefaults" type="button">Suggested values</button><span class="optional-tag">t.me/MatinSenPaii/5469</span></div><small>Values change from time to time, so every field is editable. Only fragment masks are supported.</small></div>
+              </div>
+            </div></div>
+          </section>
+
           <section class="surface validation-setup" aria-labelledby="validationTitle">
-            <header class="surface-head"><div><span class="step-tag">02</span><h2 id="validationTitle">Tunnel speed test</h2></div><span class="optional-tag">OPTIONAL</span></header>
+            <header class="surface-head"><div><span class="step-tag">03</span><h2 id="validationTitle">Tunnel speed test</h2></div><span class="optional-tag">OPTIONAL</span></header>
             <p class="section-copy">Add a share URL to automatically validate the best green endpoints through xray when Phase 1 finishes.</p>
             <div class="field full"><label for="configUrl">VLESS / Trojan / VMess URL</label><textarea class="input mono" id="configUrl" rows="3" placeholder="Paste a share URL, or leave this empty for reachability only"></textarea></div>
             <details class="advanced">
@@ -87,6 +101,7 @@
               </div>
             </details>
           </section>
+          </div>
         </div>
 
         <div class="run-footer"><div><strong>Results stream to disk while scanning.</strong><span id="livePathText">The live file path appears after the run starts.</span></div><button class="button primary large" id="btnStartBottom">Start scan <span aria-hidden="true">→</span></button></div>
@@ -145,7 +160,7 @@
       </section>
     </main>
 
-    <footer class="app-footer"><span id="versionText">v0.8.0</span><span>SenPai Scanner · local-first network utility</span></footer>
+    <footer class="app-footer"><span id="versionText">v1.1.0</span><span>SENPAI/SCAN · local-first network utility</span></footer>
   </div>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>

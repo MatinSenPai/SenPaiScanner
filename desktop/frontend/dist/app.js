@@ -20,6 +20,7 @@ const state = {
     minSpeedIdx: 0, minSpeedCustom: "",
     speedSizeIdx: 1, speedSizeCustom: "",
     uploadTest: false,
+    antiDpi: { enabled: true, finalmask: "", fingerprint: "", alpn: "", cipherSuites: "" },
   },
   scan: { running: false, phase: 0, cancelled: false, manualSpeed: false, livePath: "", status: "idle" },
   stats: { tested: 0, healthy: 0, failed: 0, total: 0 },
@@ -63,6 +64,8 @@ const els = {
   toggleRequireWS: $("#toggleRequireWS"), toggleNeighbors: $("#toggleNeighbors"), toggleUpload: $("#toggleUpload"),
   exportSub: $("#exportSub"), exportSingbox: $("#exportSingbox"), exportClash: $("#exportClash"), exportNote: $("#exportNote"),
   exportCallout: $("#exportCallout"), subCount: $("#subCount"), toast: $("#toast"),
+  toggleAntiDpi: $("#toggleAntiDpi"), antidpiBody: $("#antidpiBody"), adFinalmask: $("#adFinalmask"), adFingerprint: $("#adFingerprint"),
+  adAlpn: $("#adAlpn"), adCiphers: $("#adCiphers"), adError: $("#adError"), btnAdDefaults: $("#btnAdDefaults"), themeBtn: $("#themeBtn"),
 };
 
 let toastTimer;
@@ -207,6 +210,7 @@ function readSettings() {
     speedUrl: els.speedUrl.value.trim(),
     speedSize: Math.round(speedSize),
     uploadTest: state.settings.uploadTest,
+    antiDpi: readAntiDpi(),
     countIdx: state.settings.countIdx, countCustom: state.settings.countCustom,
     workersIdx: state.settings.workersIdx, workersCustom: state.settings.workersCustom,
     timeoutIdx: state.settings.timeoutIdx, timeoutCustom: state.settings.timeoutCustom,
@@ -232,6 +236,44 @@ function applyParams(params) {
   setToggle(els.toggleRequireWS, s.requireWS);
   setToggle(els.toggleNeighbors, s.neighborScan);
   setToggle(els.toggleUpload, s.uploadTest);
+  if (params.antiDpi) setAntiDpi(params.antiDpi);
+}
+
+// Anti-DPI recipe form (the Go side validates and applies it; see internal/antidpi).
+function readAntiDpi() {
+  return {
+    enabled: state.settings.antiDpi.enabled,
+    finalmask: els.adFinalmask.value.trim(),
+    fingerprint: els.adFingerprint.value.trim(),
+    alpn: els.adAlpn.value.trim(),
+    cipherSuites: els.adCiphers.value.trim(),
+  };
+}
+
+function setAntiDpi(profile) {
+  state.settings.antiDpi.enabled = !!profile.enabled;
+  els.adFinalmask.value = profile.finalmask || "";
+  els.adFingerprint.value = profile.fingerprint || "";
+  els.adAlpn.value = profile.alpn || "";
+  els.adCiphers.value = profile.cipherSuites || "";
+  syncAntiDpi();
+}
+
+function syncAntiDpi() {
+  const on = state.settings.antiDpi.enabled;
+  setToggle(els.toggleAntiDpi, on);
+  els.antidpiBody.classList.toggle("off", !on);
+}
+
+let adTimer;
+function checkAntiDpi() {
+  clearTimeout(adTimer);
+  adTimer = setTimeout(async () => {
+    const response = await invoke(App?.ValidateAntiDPI, readAntiDpi());
+    const message = response.ok ? response.value : "";
+    els.adError.hidden = !message;
+    els.adError.textContent = message || "";
+  }, 250);
 }
 
 function sortRank(result) {
@@ -390,6 +432,8 @@ function switchTab(tab) {
     panel.hidden = !active;
   });
   $(".workspace").scrollTop = 0;
+  const heading = $(`[data-panel='${tab}'] h1`);
+  if (heading) { heading.classList.remove("glitch"); void heading.offsetWidth; heading.classList.add("glitch"); }
 }
 
 function setSession(status, title, hint) {
@@ -600,6 +644,29 @@ function wireControls() {
     };
   });
   els.configUrl.oninput = () => mark(D.ACTIONS);
+
+  els.toggleAntiDpi.onclick = () => {
+    state.settings.antiDpi.enabled = !state.settings.antiDpi.enabled;
+    syncAntiDpi();
+    els.toggleAntiDpi.classList.remove("ring"); void els.toggleAntiDpi.offsetWidth; els.toggleAntiDpi.classList.add("ring");
+  };
+  [els.adFinalmask, els.adFingerprint, els.adAlpn, els.adCiphers].forEach((input) => { input.oninput = checkAntiDpi; });
+  els.btnAdDefaults.onclick = async () => {
+    const response = await invoke(App?.AntiDPIDefaults);
+    if (!response.ok || !response.value) return;
+    setAntiDpi({ ...response.value, enabled: true });
+    checkAntiDpi();
+    toast("Suggested Anti-DPI values restored.");
+  };
+
+  const applyTheme = (theme) => {
+    document.documentElement.dataset.theme = theme;
+    try { localStorage.setItem("senpai-theme", theme); } catch (error) { /* storage can be unavailable; the theme just will not persist */ }
+  };
+  els.themeBtn.onclick = () => applyTheme(document.documentElement.dataset.theme === "light" ? "dark" : "light");
+  let saved = "dark";
+  try { saved = localStorage.getItem("senpai-theme") || "dark"; } catch (error) { /* default to dark */ }
+  applyTheme(saved);
 }
 
 async function init() {
@@ -614,14 +681,20 @@ async function init() {
   };
   if (App) {
     const [version, presets] = await Promise.all([invoke(App.GetVersion), invoke(App.Presets)]);
-    els.versionText.textContent = version.value || "v0.8.0";
+    els.versionText.textContent = version.value || "v1.1.0";
     state.presets = presets.value || fallbackPresets;
   } else {
-    els.versionText.textContent = "v0.8.0 preview";
+    els.versionText.textContent = "v1.1.0 preview";
     state.presets = fallbackPresets;
   }
   buildSegments();
   buildPorts();
+  if (App) {
+    const profile = await invoke(App.AntiDPIProfile);
+    if (profile.ok && profile.value) setAntiDpi(profile.value);
+  } else {
+    syncAntiDpi();
+  }
   setToggle(els.toggleRequireWS, state.settings.requireWS);
   setToggle(els.toggleNeighbors, state.settings.neighborScan);
   setToggle(els.toggleUpload, state.settings.uploadTest);

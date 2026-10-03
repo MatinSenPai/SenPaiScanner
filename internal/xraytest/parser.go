@@ -7,6 +7,8 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+
+	"github.com/matinsenpai/senpaiscanner/internal/antidpi"
 )
 
 // VLESSConfig holds parsed parameters from a VLESS, Trojan or VMess share URL.
@@ -51,6 +53,13 @@ type VLESSConfig struct {
 
 	// Upload test flag — when true, Phase 2 measures upload throughput.
 	UploadTest bool
+
+	// AntiDPI fragments the ClientHello that leaves this machine (zero value = off).
+	AntiDPI antidpi.Profile
+
+	// Set by StartAntiDPI: the loopback fragmenter xray dials instead of Address:Port.
+	dialHost string
+	dialPort int
 }
 
 // ParseProxyURL auto-detects the protocol (vless://, trojan://, or vmess://) and parses

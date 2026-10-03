@@ -7,7 +7,7 @@ on:
         description: Release version without the v prefix
         required: false
         type: string
-        default: 1.0.0
+        default: 1.1.0
     secrets:
       ANDROID_KEYSTORE_BASE64:
         required: false
@@ -22,7 +22,7 @@ on:
       version:
         description: Release version without the v prefix
         required: true
-        default: 1.0.0
+        default: 1.1.0
   pull_request:
     paths:
       - "android/**"
@@ -40,8 +40,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      VERSION: ${{ inputs.version || github.event.inputs.version || '1.0.0' }}
-      ANDROID_VERSION_NAME: ${{ inputs.version || github.event.inputs.version || '1.0.0' }}
+      VERSION: ${{ inputs.version || github.event.inputs.version || '1.1.0' }}
+      ANDROID_VERSION_NAME: ${{ inputs.version || github.event.inputs.version || '1.1.0' }}
       ANDROID_VERSION_CODE: "10000"
       KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
     steps:
@@ -92,9 +92,9 @@ jobs:
             key_alias="$SECRET_KEY_ALIAS"
             key_password="$SECRET_KEY_PASSWORD"
           else
-            store_password="senpai-ci-1.0.0"
+            store_password="senpai-ci-1.1.0"
             key_alias="senpai-ci"
-            key_password="senpai-ci-1.0.0"
+            key_password="senpai-ci-1.1.0"
             keytool -genkeypair -noprompt -keystore android/keystore/release.keystore \
               -storepass "$store_password" -alias "$key_alias" -keypass "$key_password" \
               -keyalg RSA -keysize 3072 -validity 3650 -dname "CN=SenPaiScanner CI,O=SenPaiScanner,C=IR"

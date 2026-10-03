@@ -14,6 +14,7 @@ import (
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
+	"github.com/matinsenpai/senpaiscanner/internal/antidpi"
 	"github.com/matinsenpai/senpaiscanner/internal/export"
 	"github.com/matinsenpai/senpaiscanner/internal/ipsrc"
 	"github.com/matinsenpai/senpaiscanner/internal/prober"
@@ -124,6 +125,9 @@ type ScanParams struct {
 	UploadTest   bool    `json:"uploadTest"`
 	NeighborScan bool    `json:"neighborScan"`
 
+	// AntiDPI is the editable ClientHello-fragmentation recipe (see internal/antidpi).
+	AntiDPI antidpi.Profile `json:"antiDpi"`
+
 	// Round-trip fields for the shared config file
 	CountIdx        int    `json:"countIdx"`
 	CountCustom     string `json:"countCustom"`
@@ -164,6 +168,7 @@ func (p ScanParams) toSavedConfig() ui.SavedConfig {
 		UploadTest:      p.UploadTest,
 		RequireWS:       p.RequireWS,
 		NeighborScan:    p.NeighborScan,
+		AntiDPI:         p.AntiDPI,
 	}
 }
 
@@ -226,6 +231,9 @@ func (a *App) emit(scanID int64, name string, payload any) {
 // StartScan persists the settings (shared with CLI Retry Last Scan), then
 // runs Phase 1 and — when a config URL is present — Phase 2.
 func (a *App) StartScan(params ScanParams) error {
+	if err := applyAntiDPI(params.AntiDPI); err != nil {
+		return err
+	}
 	a.mu.Lock()
 	if a.scanning {
 		a.mu.Unlock()
@@ -256,6 +264,31 @@ func (a *App) StartScan(params ScanParams) error {
 		}()
 		a.runScan(ctx, scanID, params)
 	}()
+	return nil
+}
+
+// AntiDPIDefaults returns the published recipe for the "Suggested values" button.
+func (a *App) AntiDPIDefaults() antidpi.Profile { return antidpi.DefaultProfile() }
+
+// AntiDPIProfile returns the profile saved with the last scan (defaults on first run).
+func (a *App) AntiDPIProfile() antidpi.Profile {
+	ui.SetAntiDPI(ui.LoadAppConfig().LastConfig.AntiDPI)
+	return ui.CurrentAntiDPI()
+}
+
+// ValidateAntiDPI reports a problem with p (empty string = fine) so the form can show it before a scan.
+func (a *App) ValidateAntiDPI(p antidpi.Profile) string {
+	if err := p.Validate(); err != nil {
+		return err.Error()
+	}
+	return ""
+}
+
+func applyAntiDPI(p antidpi.Profile) error {
+	if err := p.Validate(); err != nil {
+		return fmt.Errorf("anti-dpi: %w", err)
+	}
+	ui.SetAntiDPI(p)
 	return nil
 }
 
@@ -472,6 +505,9 @@ func (a *App) runScan(ctx context.Context, scanID int64, params ScanParams) {
 // With a config URL it validates through xray; without one it runs a direct
 // Cloudflare download sample so the action remains useful for Phase 1 scans.
 func (a *App) StartSpeedTest(params ScanParams) error {
+	if err := applyAntiDPI(params.AntiDPI); err != nil {
+		return err
+	}
 	a.mu.Lock()
 	if a.scanning {
 		a.mu.Unlock()
@@ -558,6 +594,7 @@ func (a *App) runSpeedTest(ctx context.Context, scanID int64, params ScanParams,
 		Mode: prober.ModeHTTP, Tries: 1, Timeout: timeout,
 		SNI: "speed.cloudflare.com", SpeedBytes: sampleBytes,
 		InsecureSkipVerify: true,
+		AntiDPI:            ui.CurrentAntiDPI(),
 	}
 	workers := params.Workers
 	if workers <= 0 {
@@ -683,6 +720,7 @@ func (a *App) RetryLastScan() (ScanParams, error) {
 		SpeedSize:    speedSize,
 		UploadTest:   cfg.UploadTest,
 		NeighborScan: cfg.NeighborScan,
+		AntiDPI:      ui.CurrentAntiDPI(),
 
 		CountIdx:        cfg.CountIdx,
 		CountCustom:     cfg.CountCustom,
