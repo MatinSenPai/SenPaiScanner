@@ -1,5 +1,13 @@
 # SenPai Scanner — Release Notes
 
+## v1.1.0
+
+- **Anti-DPI**: the TLS ClientHello of every probe (and of the xray tunnel validation) can be cut into small pieces so DPI cannot match the SNI. Defaults are the published values from t.me/MatinSenPaii/5469 (`tlshello` 0/104/1 + first-packet 114/1, delay 1 ms, maxSplit 11, fingerprint `unsafe`, ALPN `http/1.1`); every field is editable in the desktop app, with a "Suggested values" button
+- Anti-DPI switch in the TUI config screen and in the Android scan config; values persist as `anti_dpi` in the shared config file
+- New black / white / red look (square corners, numbered sections, Vazirmatn + JetBrains Mono) across the desktop GUI, the terminal UI and the Android app, with a light theme in the desktop app
+- New logo, banner and social preview; all desktop and Android icons regenerated (`python gen_icons.py`)
+- Tests: byte-for-byte check of the Anti-DPI recipe, a probe test that proves the ClientHello arrives fragmented, and xray outbound tests
+
 ## v1.0.0
 
 - Unified Signal Desk experience across Windows, Linux, macOS, and Android GUI builds

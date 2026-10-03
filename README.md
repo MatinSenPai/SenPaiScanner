@@ -1,8 +1,4 @@
-<p align="center">
-  <img src="logo/logo.png" width="220" alt="SenPai Scanner logo">
-</p>
-
-<h1 align="center">SenPai Scanner</h1>
+<p align="center"><img src="logo/banner.png" alt="SenPai/Scan" width="100%"></p>
 
 <p align="center">
   <strong>Find, validate, rank, and export resilient Cloudflare endpoints.</strong><br>
@@ -27,7 +23,7 @@
 
 SenPai Scanner is a cross-platform Cloudflare endpoint scanner for unstable, filtered, or high-latency networks. It performs fast edge probing, can validate the best candidates through your real proxy configuration with an embedded Xray core, and turns the results into client-ready exports.
 
-Version **1.0.0** introduces the redesigned **Signal Desk** workflow across the desktop GUI and Android app, dedicated Results and Export workspaces, live copy actions, post-stop speed testing, opt-in neighbor scanning, and more resilient ISP detection.
+Version **1.1.0** adds real **Anti-DPI** (TLS ClientHello fragmentation with editable values) to every probe and to tunnel validation, and a new black / white / red look across the desktop GUI, the Android app, and the terminal UI, with a new logo and banner.
 
 ## What makes it useful
 
@@ -94,46 +90,55 @@ The desktop and Android interfaces keep each responsibility in its own workspace
 - Generate a Base64 subscription, Sing-box JSON, and Clash YAML.
 - Keep Results and Export separate, so exporting never interrupts result inspection.
 
-## Download version 1.0.0
+### Anti-DPI
 
-Download the build for your platform from [GitHub Releases](https://github.com/MatinSenPai/SenPaiScanner/releases/latest). The `v1.0.0` release workflow builds and publishes every supported interface together and adds `SHA256SUMS.txt`.
+Deep-packet-inspection boxes often match the SNI in the first TLS packet. With Anti-DPI on, the scanner cuts that ClientHello into small pieces before it leaves your machine, for **every probe** and for the **xray tunnel validation**.
+
+- Defaults are the published values from [t.me/MatinSenPaii/5469](https://t.me/MatinSenPaii/5469): a `tlshello` fragment mask (`lengths 0/104/1`) followed by a first-packet mask (`lengths 114/1`, `delay 1 ms`, `maxSplit 11`), fingerprint `unsafe`, ALPN `http/1.1`, and the cipher-suite list from the post.
+- Every field is editable in the desktop app (section **02 Anti-DPI**, with a **Suggested values** button). The TUI has an on/off row in the config screen and reads the same values from `anti_dpi` in its config file. The Android app takes the same switch through its scan config (`antiDpi`).
+- Only `fragment` masks are supported; anything else is reported instead of being silently ignored. Go's TLS stack only lets you choose TLS 1.2 cipher suites, so the TLS 1.3 ones in the list are skipped for the direct probes.
+- Stock xray-core cannot parse per-segment `lengths` / `delays`, so the fragmentation runs in a tiny local forwarder in front of the outbound (`internal/antidpi`).
+
+## Download version 1.1.0
+
+Download the build for your platform from [GitHub Releases](https://github.com/MatinSenPai/SenPaiScanner/releases/latest). The `v1.1.0` release workflow builds and publishes every supported interface together and adds `SHA256SUMS.txt`.
 
 ### Desktop GUI
 
 | Platform | Release asset |
 |---|---|
-| Windows x64 | `SenPaiScanner-1.0.0-gui-windows-amd64.zip` |
-| Linux x64 | `SenPaiScanner-1.0.0-gui-linux-amd64.tar.gz` |
-| macOS Intel | `SenPaiScanner-1.0.0-gui-macos-intel.zip` |
-| macOS Apple Silicon | `SenPaiScanner-1.0.0-gui-macos-apple-silicon.zip` |
+| Windows x64 | `SenPaiScanner-1.1.0-gui-windows-amd64.zip` |
+| Linux x64 | `SenPaiScanner-1.1.0-gui-linux-amd64.tar.gz` |
+| macOS Intel | `SenPaiScanner-1.1.0-gui-macos-intel.zip` |
+| macOS Apple Silicon | `SenPaiScanner-1.1.0-gui-macos-apple-silicon.zip` |
 
-The Windows executable and Android application use the transparent artwork from [`logo/logo.png`](logo/logo.png).
+The Windows executable and Android application use the artwork from [`logo/logo.png`](logo/logo.png) (regenerate all icons with `python gen_icons.py`).
 
 ### CLI / TUI
 
 | Platform | Release asset |
 |---|---|
-| Windows x64 | `SenPaiScanner-1.0.0-cli-windows-amd64.exe` |
-| Windows ARM64 | `SenPaiScanner-1.0.0-cli-windows-arm64.exe` |
-| Linux x64 | `SenPaiScanner-1.0.0-cli-linux-amd64` |
-| Linux ARM64 / Termux | `SenPaiScanner-1.0.0-cli-linux-arm64` |
-| macOS Intel | `SenPaiScanner-1.0.0-cli-macos-intel` |
-| macOS Apple Silicon | `SenPaiScanner-1.0.0-cli-macos-apple-silicon` |
+| Windows x64 | `SenPaiScanner-1.1.0-cli-windows-amd64.exe` |
+| Windows ARM64 | `SenPaiScanner-1.1.0-cli-windows-arm64.exe` |
+| Linux x64 | `SenPaiScanner-1.1.0-cli-linux-amd64` |
+| Linux ARM64 / Termux | `SenPaiScanner-1.1.0-cli-linux-arm64` |
+| macOS Intel | `SenPaiScanner-1.1.0-cli-macos-intel` |
+| macOS Apple Silicon | `SenPaiScanner-1.1.0-cli-macos-apple-silicon` |
 
 On Linux and macOS, make the downloaded CLI executable before running it:
 
 ```bash
-chmod +x SenPaiScanner-1.0.0-cli-*
-./SenPaiScanner-1.0.0-cli-linux-amd64
+chmod +x SenPaiScanner-1.1.0-cli-*
+./SenPaiScanner-1.1.0-cli-linux-amd64
 ```
 
 ### Android
 
 | Release asset | Device |
 |---|---|
-| `SenPaiScanner-1.0.0-android-universal.apk` | Recommended sideload build for all supported ABIs |
-| `SenPaiScanner-1.0.0-android-arm64-v8a.apk` | Most current 64-bit Android devices |
-| `SenPaiScanner-1.0.0-android-armeabi-v7a.apk` | Older 32-bit ARM devices |
+| `SenPaiScanner-1.1.0-android-universal.apk` | Recommended sideload build for all supported ABIs |
+| `SenPaiScanner-1.1.0-android-arm64-v8a.apk` | Most current 64-bit Android devices |
+| `SenPaiScanner-1.1.0-android-armeabi-v7a.apk` | Older 32-bit ARM devices |
 
 Android requires API 24 or newer. If you sideload an APK, Android may ask you to permit installation from the app that opened the file.
 
@@ -168,7 +173,7 @@ Use the Linux ARM64 CLI asset on modern phones:
 pkg update
 pkg install curl -y
 curl -fL -o "$PREFIX/bin/senpaiscanner" \
-  https://github.com/MatinSenPai/SenPaiScanner/releases/download/v1.0.0/SenPaiScanner-1.0.0-cli-linux-arm64
+  https://github.com/MatinSenPai/SenPaiScanner/releases/download/v1.1.0/SenPaiScanner-1.1.0-cli-linux-arm64
 chmod +x "$PREFIX/bin/senpaiscanner"
 senpaiscanner
 ```
@@ -195,7 +200,7 @@ go build -trimpath -o senpaiscanner ./cmd/senpaiscanner
 Windows can produce the versioned cross-platform CLI set with:
 
 ```powershell
-./build.ps1 -Version 1.0.0
+./build.ps1 -Version 1.1.0
 ```
 
 ### Build the desktop GUI
@@ -205,7 +210,7 @@ Install Wails, then build from the `desktop` directory:
 ```powershell
 go install github.com/wailsapp/wails/v2/cmd/wails@v2.11.0
 cd desktop
-./build_gui.ps1 -Version 1.0.0
+./build_gui.ps1 -Version 1.1.0
 ```
 
 Linux requires GTK 3 and WebKitGTK 4.1 development packages. macOS builds require the native Xcode toolchain. GitHub Actions builds each GUI on its target operating system rather than cross-compiling webviews.
@@ -245,9 +250,9 @@ The repository keeps platform builds separate and composes them in one final rel
 | [`build-cli.yml`](.github/workflows/build-cli.yml) | Six versioned CLI targets |
 | [`build-gui.yml`](.github/workflows/build-gui.yml) | Native Windows, Linux, Intel macOS, and Apple Silicon GUI packages |
 | [`build-android.yml`](.github/workflows/build-android.yml) | Go mobile bridge, Android tests/lint, signed ABI APKs, and universal APK |
-| [`release.yml`](.github/workflows/release.yml) | Publishes the complete **v1.0.0** release and SHA-256 checksums |
+| [`release.yml`](.github/workflows/release.yml) | Publishes the complete **v1.1.0** release and SHA-256 checksums |
 
-Pushing the exact tag `v1.0.0` starts the final release workflow.
+Pushing the exact tag `v1.1.0` starts the final release workflow.
 
 ## Repository map
 
