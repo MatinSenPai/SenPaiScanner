@@ -93,6 +93,12 @@ button { color: inherit; }
 .rail-stats .alive span { color: var(--red); }
 .rail-actions { display: flex; justify-content: flex-end; }
 
+/* Resume banner */
+.resume-banner { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; padding: 12px 18px; border: 1px solid var(--red); border-inline-start-width: 4px; background: var(--panel); }
+.resume-banner strong, .resume-banner span { display: block; }
+.resume-banner strong { font-size: 13px; }
+.resume-banner span { color: var(--mut); font: 400 11px var(--mono); }
+
 /* Workspace */
 .workspace { min-height: 0; overflow-y: auto; scrollbar-color: var(--line2) transparent; }
 .panel { width: min(1460px, 100%); min-height: 100%; margin: 0 auto; padding: 28px 34px 44px; }

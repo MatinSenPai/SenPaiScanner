@@ -27,7 +27,28 @@ import (
 
 // scanCancel holds the cancel function for the active scan so the TUI can
 // abort it when the user presses esc/q.
-var scanCancel context.CancelFunc
+var (
+	scanCancelMu sync.Mutex
+	scanCancel   context.CancelFunc
+)
+
+// setScanCancel records the cancel function of the scan that just started.
+func setScanCancel(c context.CancelFunc) {
+	scanCancelMu.Lock()
+	scanCancel = c
+	scanCancelMu.Unlock()
+}
+
+// cancelActiveScan aborts the running scan, if any.
+func cancelActiveScan() {
+	scanCancelMu.Lock()
+	c := scanCancel
+	scanCancelMu.Unlock()
+	if c != nil {
+		c()
+	}
+}
+
 var scanIDCounter atomic.Int64
 
 func nextScanID() int64 { return scanIDCounter.Add(1) }
@@ -44,9 +65,7 @@ func StartScanCmd(cfg ScanConfig, scanID int64) tea.Cmd {
 // CancelScanCmd cancels the running scan.
 func CancelScanCmd() tea.Cmd {
 	return func() tea.Msg {
-		if scanCancel != nil {
-			scanCancel()
-		}
+		cancelActiveScan()
 		return nil
 	}
 }
@@ -116,7 +135,7 @@ func runScan(cfg ScanConfig, scanID int64) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	scanCancel = cancel
+	setScanCancel(cancel)
 	defer cancel()
 
 	engCfg := engine.Config{
@@ -188,7 +207,7 @@ func runTest(ipFile string, scanID int64) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	scanCancel = cancel
+	setScanCancel(cancel)
 	defer cancel()
 
 	engCfg := engine.Config{
@@ -226,7 +245,7 @@ func runColos(scanID int64) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	scanCancel = cancel
+	setScanCancel(cancel)
 	defer cancel()
 
 	engCfg := engine.Config{
@@ -301,7 +320,7 @@ func runConfigPhase1(opts configPhase1Options) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	scanCancel = cancel
+	setScanCancel(cancel)
 	defer cancel()
 
 	callback := func(r *result.Result) {
@@ -357,7 +376,7 @@ func runConfigPhase1(opts configPhase1Options) {
 			}
 		}
 	}
-	runConfigPortProbes(ctx, ipStream, ports, opts.concurrency, probeCfg, callback, neighbor)
+	runConfigPortProbesWithProbe(ctx, ipStream, ports, opts.concurrency, probeCfg, callback, neighbor, limitedProbe(opts.ratePerSec))
 
 	if prog != nil {
 		prog.Send(ConfigPhase1DoneMsg{})

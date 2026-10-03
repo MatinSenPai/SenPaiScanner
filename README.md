@@ -99,6 +99,26 @@ Deep-packet-inspection boxes often match the SNI in the first TLS packet. With A
 - Only `fragment` masks are supported; anything else is reported instead of being silently ignored. Go's TLS stack only lets you choose TLS 1.2 cipher suites, so the TLS 1.3 ones in the list are skipped for the direct probes.
 - Stock xray-core cannot parse per-segment `lengths` / `delays`, so the fragmentation runs in a tiny local forwarder in front of the outbound (`internal/antidpi`).
 
+### Plain text mode (screen readers and scripts)
+
+The full-screen terminal UI is hard to use with NVDA, JAWS or Orca. Plain text mode prints one complete sentence per line: no colours, no redraws, no cursor tricks.
+
+```bash
+senpaiscanner --plain          # answers a few questions, then scans
+senpaiscanner scan -count 5000 -gentle -config "vless://..."
+senpaiscanner scan -resume     # continue the interrupted scan
+senpaiscanner help             # every option
+```
+
+Progress is announced on a timer (`-progress 15s`) and only when it changed; healthy addresses are announced as they appear (the first 25), and the final list is printed at the end and optionally written with `-output file.txt`.
+
+### Your own targets, Gentle mode, and resuming
+
+- **Paste your own list** (desktop: *IP source → Paste list*; CLI: `-targets` / `-targets-file`): IPs, CIDRs, ranges (`1.2.3.4-1.2.3.40`) and domain names, which are resolved to their addresses. Bad entries are reported, not silently dropped.
+- **Skip the reachability scan** (*Skip the reachability scan* / `-phase2-only`): test your list directly, through your config if you gave one, or with a direct download sample if not.
+- **Gentle mode** (*Scan profile → Gentle* / `-gentle` / the *Profile* row in the terminal UI): at most 25 workers, at least a 6 s timeout and 40 probes per second, for ISPs that cut the connection when a scan looks like a flood.
+- **Resume**: every scan saves its progress (target pool, what was probed, healthy results, finished validations) in your config folder every 20 seconds and when you stop it. After a crash, a power cut or a closed window the desktop app offers *Resume scan*; the CLI continues with `scan -resume`. A scan that finishes removes its saved state.
+
 ## Download version 1.1.0
 
 Download the build for your platform from [GitHub Releases](https://github.com/MatinSenPai/SenPaiScanner/releases/latest). The `v1.1.0` release workflow builds and publishes every supported interface together and adds `SHA256SUMS.txt`.
@@ -122,6 +142,7 @@ The Windows executable and Android application use the artwork from [`logo/logo.
 | Windows ARM64 | `SenPaiScanner-1.1.0-cli-windows-arm64.exe` |
 | Linux x64 | `SenPaiScanner-1.1.0-cli-linux-amd64` |
 | Linux ARM64 / Termux | `SenPaiScanner-1.1.0-cli-linux-arm64` |
+| Linux ARMv7 / 32-bit Termux | `SenPaiScanner-1.1.0-cli-linux-armv7` |
 | macOS Intel | `SenPaiScanner-1.1.0-cli-macos-intel` |
 | macOS Apple Silicon | `SenPaiScanner-1.1.0-cli-macos-apple-silicon` |
 
@@ -274,6 +295,13 @@ SenPai Scanner makes outbound network requests and may launch an embedded Xray p
 
 - **No healthy results:** try a longer timeout, fewer workers, another port, or a different network. Leave neighbor scanning off until the baseline scan behaves predictably.
 - **Phase 1 passes but speed validation fails:** verify the proxy URL, SNI/host, transport path, and upstream server in a known-working Xray client.
+- **My connection drops while scanning (#25, #56, #62, #96):** turn on **Gentle** mode (desktop *Scan profile*, terminal UI *Profile* row, or `-gentle`). Users report that 25 workers and a 6 s timeout is the limit many ISPs tolerate. Power-cycling the modem first helps if the line is already throttled.
+- **Every Phase 2 test fails (#82, #102, #55):** the Anti-DPI recipe is on by default and its values change over time; edit them or try **Suggested values**, and verify your config in a normal Xray client.
+- **Where are the results saved? (#90):** a live results file named `SenPaiScannerResult-<date>.txt` is written next to the executable (or in the folder you started it from) while the scan runs, and its path is printed at the start. In Termux that is the folder you ran `senpaiscanner` from, for example `~`.
+- **macOS says the file cannot be opened (#54, #112):** `chmod +x ./SenPaiScanner-*-cli-macos-*` and, if Gatekeeper still blocks it, `xattr -cr ./SenPaiScanner-*-cli-macos-*`. Use `macos-apple-silicon` for M1 and later, `macos-intel` otherwise.
+- **How do I run the Linux binary? (#114):** it has no extension. `chmod +x ./SenPaiScanner-*-cli-linux-amd64` and run it with `./`. ARM boards and 64-bit phones use `linux-arm64`, 32-bit ones `linux-armv7`.
+- **I cannot paste into the terminal UI (#44):** terminals differ: try `Shift+Insert`, `Ctrl+Shift+V`, or right-click; over PuTTY, middle-click pastes. If none works, use plain text mode and pass the link with `-config`, or the desktop app.
+- **Screen reader (NVDA, JAWS, Orca):** use plain text mode, `senpaiscanner --plain`.
 - **Clipboard fails in a terminal:** use the generated output file or copy from the desktop/Android Results workspace.
 - **Android release will not update an installed build:** both APKs must be signed by the same key. Configure the permanent signing secrets before publishing production releases.
 - **Need help:** open an issue with the app version, OS/architecture, interface, and reproducible steps—but remove proxy credentials first.

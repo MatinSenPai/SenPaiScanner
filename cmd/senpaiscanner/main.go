@@ -6,6 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/matinsenpai/senpaiscanner/internal/plaincli"
 	"github.com/matinsenpai/senpaiscanner/internal/ui"
 	"github.com/matinsenpai/senpaiscanner/pkg/version"
 )
@@ -15,6 +16,17 @@ func main() {
 	if len(os.Args) > 1 && (os.Args[1] == "--version" || os.Args[1] == "-v" || os.Args[1] == "version") {
 		fmt.Println("SenPai Scanner", version.String())
 		return
+	}
+
+	// Plain text mode for screen readers and scripts: "scan ..." or --plain / --no-tui / --simple / --accessible.
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "scan", "--plain", "--no-tui", "--simple", "--accessible":
+			os.Exit(plaincli.Run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
+		case "-h", "--help", "help":
+			fmt.Print(plaincli.Usage)
+			return
+		}
 	}
 
 	model := ui.NewApp(version.Version)

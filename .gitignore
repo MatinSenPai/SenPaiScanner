@@ -76,3 +76,6 @@ dist/
 # Temporary
 tmp/
 temp/
+
+# live results written next to the executable / working directory
+SenPaiScannerResult-*.txt

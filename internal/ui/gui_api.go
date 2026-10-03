@@ -12,6 +12,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"golang.org/x/time/rate"
+
 	"github.com/matinsenpai/senpaiscanner/internal/ipsrc"
 	"github.com/matinsenpai/senpaiscanner/internal/prober"
 	"github.com/matinsenpai/senpaiscanner/internal/result"
@@ -86,6 +88,29 @@ func RunPortProbes(ctx context.Context, ips <-chan net.IP, ports []int, concurre
 		perHit:   neighbor.PerHit,
 		maxTotal: neighbor.MaxTotal,
 	})
+}
+
+// RunPortProbesLimited is RunPortProbes with a global cap of ratePerSec probes started per second
+// (<= 0 means unlimited). It is what the "Gentle" profile uses so a scan does not look like a flood.
+func RunPortProbesLimited(ctx context.Context, ips <-chan net.IP, ports []int, concurrency int, base prober.Config, callback func(*result.Result), neighbor NeighborScanOpts, ratePerSec float64) {
+	probe := limitedProbe(ratePerSec)
+	runConfigPortProbesWithProbe(ctx, ips, ports, concurrency, base, callback, neighborScanOpts{
+		enabled: neighbor.Enabled, nets: neighbor.Nets, radius: neighbor.Radius, perHit: neighbor.PerHit, maxTotal: neighbor.MaxTotal,
+	}, probe)
+}
+
+// limitedProbe is prober.Probe behind a global start-rate cap (<= 0 means no cap).
+func limitedProbe(ratePerSec float64) probeFunc {
+	if ratePerSec <= 0 {
+		return prober.Probe
+	}
+	lim := rate.NewLimiter(rate.Limit(ratePerSec), 1)
+	return func(ctx context.Context, ip net.IP, cfg prober.Config) *result.Result {
+		if lim.Wait(ctx) != nil {
+			return &result.Result{IP: ip, Port: cfg.Port, ProbeMode: cfg.Mode.String(), Latencies: make([]time.Duration, cfg.Tries)}
+		}
+		return prober.Probe(ctx, ip, cfg)
+	}
 }
 
 // LoadIPsFile wraps the CLI's ips.txt discovery (next to the app or cwd).
@@ -507,3 +532,7 @@ func cymruOriginName(ip net.IP) string {
 type atomicInt32 struct{ v atomic.Int32 }
 
 func (a *atomicInt32) add() int32 { return a.v.Add(1) }
+
+// FormatEndpoint and FormatSpeed let the plain-text front end print the same strings as the TUI.
+func FormatEndpoint(ip string, port int) string { return formatEndpoint(ip, port) }
+func FormatSpeed(bytesPerSec float64) string     { return formatValidationSpeed(bytesPerSec) }

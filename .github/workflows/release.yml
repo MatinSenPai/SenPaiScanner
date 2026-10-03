@@ -5,6 +5,15 @@ on:
     tags:
       - "v1.1.0"
   workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to create (a manual run defaults to a pre-release tag)
+        required: true
+        default: v1.1.0-pre1
+      prerelease:
+        description: Mark the release as a pre-release
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -42,9 +51,10 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.1.0
+          tag_name: ${{ inputs.tag || 'v1.1.0' }}
           target_commitish: ${{ github.sha }}
-          name: SenPai Scanner v1.1.0
+          name: SenPai Scanner ${{ inputs.tag || 'v1.1.0' }}
+          prerelease: ${{ inputs.prerelease || false }}
           body_path: RELEASE_NOTES.md
           generate_release_notes: true
           fail_on_unmatched_files: true

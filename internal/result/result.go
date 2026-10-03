@@ -98,6 +98,12 @@ func (r *Result) Jitter() time.Duration {
 	return time.Duration(math.Sqrt(variance))
 }
 
+// DownloadOK reports whether a single download-bearing HTTP probe succeeded. IsHealthy cannot judge
+// one-try probes (it needs two successful tries), which made every direct speed test fail.
+func (r *Result) DownloadOK() bool {
+	return r.Throughput > 0 && r.Avg() > 0 && r.HTTPStatus >= 200 && r.HTTPStatus < 400
+}
+
 // IsHealthy returns true only when the probe mode's success criteria are met.
 // A failed try must record latency 0; timeouts must never count as success.
 func (r *Result) IsHealthy() bool {

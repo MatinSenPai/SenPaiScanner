@@ -546,6 +546,7 @@ phase1Done:
 		}()
 
 		// Phase 2 validation loop
+	phase2Loop:
 		for _, r := range phase1Results {
 			if ctx.Err() != nil {
 				break
@@ -582,7 +583,7 @@ phase1Done:
 				success:          vr.Success,
 			}:
 			case <-ctx.Done():
-				break
+				break phase2Loop // a bare break would only leave the select and start the next 22 s validation
 			}
 		}
 
@@ -719,7 +720,7 @@ func runSpeedTest(configJson string, candidates []*result.Result, callback Callb
 			return
 		}
 		measured := prober.Probe(ctx, candidate.IP, base.WithPort(candidate.Port))
-		success := measured.IsHealthy() && measured.Throughput > 0
+		success := measured.DownloadOK()
 		if success {
 			passed++
 		}

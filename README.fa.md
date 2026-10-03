@@ -99,6 +99,26 @@ flowchart LR
 - فقط ماسک `fragment` پشتیبانی می‌شود و بقیه‌ی انواع به‌جای نادیده گرفته شدن گزارش می‌شوند. استک TLS در Go فقط اجازه‌ی انتخاب cipherهای TLS 1.2 را می‌دهد؛ پس موارد TLS 1.3 در probeهای مستقیم رد می‌شوند.
 - xray-core رسمی `lengths` / `delays` برای هر قطعه را نمی‌فهمد؛ بنابراین fragmentation در یک forwarder محلی کوچک جلوی outbound اجرا می‌شود (`internal/antidpi`).
 
+### حالت متنی (برای صفحه‌خوان‌ها و اسکریپت)
+
+رابط تمام‌صفحه‌ی ترمینال با NVDA و JAWS و Orca سازگار نیست. حالت متنی هر پیام را به‌صورت یک جمله‌ی کامل در یک خط چاپ می‌کند: بدون رنگ، بدون redraw.
+
+```bash
+senpaiscanner --plain          # چند سؤال می‌پرسد و اسکن می‌کند
+senpaiscanner scan -count 5000 -gentle -config "vless://..."
+senpaiscanner scan -resume     # ادامه‌ی اسکن نیمه‌تمام
+senpaiscanner help             # همه‌ی گزینه‌ها
+```
+
+پیشرفت با تایمر (`-progress 15s`) و فقط وقتی تغییر کرده اعلام می‌شود. آدرس‌های سالم هنگام پیدا شدن (۲۵ تای اول) اعلام می‌شوند و فهرست نهایی آخر کار چاپ می‌شود؛ با `-output file.txt` در فایل هم ذخیره می‌شود.
+
+### هدف دلخواه، حالت ملایم و ادامه‌ی اسکن
+
+- **فهرست دلخواه را paste کن** (دسکتاپ: *IP source ← Paste list*؛ خط فرمان: `-targets` / `-targets-file`): IP، CIDR، رنج (`1.2.3.4-1.2.3.40`) و دامنه (به آدرس تبدیل می‌شود). ورودی نامعتبر گزارش می‌شود، بی‌صدا حذف نمی‌شود.
+- **رد کردن اسکن دسترسی** (*Skip the reachability scan* / `-phase2-only`): فهرستت مستقیم تست می‌شود؛ با کانفیگ اگر دادی، وگرنه با یک نمونه‌ی دانلود مستقیم.
+- **حالت ملایم** (*Scan profile ← Gentle* / `-gentle` / ردیف *Profile* در رابط ترمینال): حداکثر ۲۵ worker، timeout حداقل ۶ ثانیه و ۴۰ probe در ثانیه؛ برای ISPهایی که اسکن را شبیه حمله می‌بینند و اینترنت را قطع می‌کنند.
+- **ادامه‌ی اسکن**: هر اسکن پیشرفتش را (فهرست هدف‌ها، چیزهایی که تست شده، نتایج سالم و اعتبارسنجی‌های تمام‌شده) هر ۲۰ ثانیه و هنگام توقف در پوشه‌ی تنظیمات ذخیره می‌کند. بعد از کرش، قطع برق یا بستن پنجره، برنامه‌ی دسکتاپ دکمه‌ی *Resume scan* را نشان می‌دهد و در خط فرمان با `scan -resume` ادامه می‌دهی. اسکنی که کامل شود، فایل ذخیره‌اش را پاک می‌کند.
+
 ## دانلود نسخه 1.1.0
 
 فایل مناسب سیستم خود را از [GitHub Releases](https://github.com/MatinSenPai/SenPaiScanner/releases/latest) دریافت کنید. workflow نسخه `v1.1.0` همه رابط‌ها را با هم می‌سازد و فایل `SHA256SUMS.txt` را نیز منتشر می‌کند.
@@ -122,6 +142,7 @@ flowchart LR
 | Windows ARM64 | `SenPaiScanner-1.1.0-cli-windows-arm64.exe` |
 | Linux x64 | `SenPaiScanner-1.1.0-cli-linux-amd64` |
 | Linux ARM64 / Termux | `SenPaiScanner-1.1.0-cli-linux-arm64` |
+| Linux ARMv7 / ترموکس ۳۲ بیتی | `SenPaiScanner-1.1.0-cli-linux-armv7` |
 | macOS Intel | `SenPaiScanner-1.1.0-cli-macos-intel` |
 | macOS Apple Silicon | `SenPaiScanner-1.1.0-cli-macos-apple-silicon` |
 

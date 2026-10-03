@@ -54,11 +54,23 @@
           <div class="intro-actions"><button class="button ghost" id="btnRetry">Load & run last scan</button><button class="button primary" id="btnStart">Start scan <span aria-hidden="true">→</span></button></div>
         </div>
 
+        <div class="resume-banner hidden" id="resumeBanner" role="status">
+          <div><strong>An interrupted scan was saved</strong><span id="resumeText"></span></div>
+          <div class="button-row"><button class="button primary" id="btnResume" type="button">Resume scan</button><button class="button ghost" id="btnDiscardResume" type="button">Discard</button></div>
+        </div>
+
         <div class="setup-layout">
           <section class="surface setup-primary" aria-labelledby="essentialsTitle">
             <header class="surface-head"><div><span class="step-tag">01</span><h2 id="essentialsTitle">Scan essentials</h2></div><p>These settings define the first pass.</p></header>
             <div class="form-grid">
-              <div class="field"><label>IP source</label><div class="seg" data-seg="ipMode"><button data-val="0" class="on">Random pool</button><button data-val="1">ips.txt</button></div><small>Random uses weighted Cloudflare IPv4 ranges.</small></div>
+              <div class="field"><label>IP source</label><div class="seg" data-seg="ipMode"><button data-val="0" class="on">Random pool</button><button data-val="1">ips.txt</button><button data-val="2">Paste list</button></div><small id="ipModeHint">Random uses weighted Cloudflare IPv4 ranges.</small></div>
+              <div class="field"><label>Scan profile</label><div class="seg" data-seg="profile"><button data-val="0" class="on">Fast</button><button data-val="1">Gentle</button></div><small id="profileHint">Full speed. Use Gentle if your connection drops while scanning.</small></div>
+              <div class="field full hidden" id="pasteBox">
+                <label for="targetsText">Your addresses</label>
+                <textarea class="input mono" id="targetsText" rows="5" spellcheck="false" placeholder="104.18.1.1&#10;104.19.0.0/24&#10;104.20.1.1-104.20.1.40&#10;edge.example.com"></textarea>
+                <small id="targetsHint">IPs, CIDRs, ranges and domains. Separate with spaces, commas or new lines.</small>
+                <label class="switch-row compact"><span><strong>Skip the reachability scan</strong><small>Test these addresses directly: tunnel speed test with your config, or a direct download sample without one.</small></span><button class="toggle" id="togglePhase2Only" role="switch" aria-checked="false"><span></span></button></label>
+              </div>
               <div class="field"><label>Target count</label><div class="seg" data-seg="count" data-preset="count"></div><input class="input hidden" id="countCustom" inputmode="numeric" placeholder="Custom count" /></div>
               <div class="field"><label>Concurrent workers</label><div class="seg" data-seg="workers" data-preset="workers"></div><input class="input hidden" id="workersCustom" inputmode="numeric" placeholder="Custom workers" /></div>
               <div class="field"><label>Probe timeout</label><div class="seg" data-seg="timeout" data-preset="timeout"></div><input class="input hidden" id="timeoutCustom" placeholder="For example 4s" /></div>

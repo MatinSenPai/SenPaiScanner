@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/matinsenpai/senpaiscanner/internal/result"
+	"github.com/matinsenpai/senpaiscanner/internal/xraytest"
 )
 
 func TestLiveResultFileNameFormat(t *testing.T) {
@@ -76,5 +77,32 @@ func TestResolveTopNPreset(t *testing.T) {
 	m.configTopNIdx = 2
 	if got := m.resolveTopN(); got != 50 {
 		t.Fatalf("topN = %d, want 50", got)
+	}
+}
+
+// A Phase 2-only run (no Phase 1 healthy rows) must still write its results.
+func TestLiveResultWriterWritesPhase2WithoutPhase1Rows(t *testing.T) {
+	dir := t.TempDir()
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+
+	w, path, err := newLiveResultWriter(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.BeginPhase2()
+	w.AddPhase2(&xraytest.ValidationResult{IP: "104.18.2.2", Port: 443, Transport: "ws", Error: "handshake timeout"})
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("phase 2 results were not written: %v", err)
+	}
+	if !strings.Contains(string(b), "104.18.2.2:443") || !strings.Contains(string(b), "handshake timeout") {
+		t.Fatalf("file missing the phase 2 row:\n%s", b)
 	}
 }

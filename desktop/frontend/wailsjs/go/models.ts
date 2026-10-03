@@ -95,6 +95,10 @@ export namespace main {
 	    speedSize: number;
 	    uploadTest: boolean;
 	    neighborScan: boolean;
+	    gentle: boolean;
+	    targets: string;
+	    phase2Only: boolean;
+	    resume: boolean;
 	    antiDpi: antidpi.Profile;
 	    countIdx: number;
 	    countCustom: string;
@@ -128,6 +132,10 @@ export namespace main {
 	        this.speedSize = source["speedSize"];
 	        this.uploadTest = source["uploadTest"];
 	        this.neighborScan = source["neighborScan"];
+	        this.gentle = source["gentle"];
+	        this.targets = source["targets"];
+	        this.phase2Only = source["phase2Only"];
+	        this.resume = source["resume"];
 	        this.antiDpi = this.convertValues(source["antiDpi"], antidpi.Profile);
 	        this.countIdx = source["countIdx"];
 	        this.countCustom = source["countCustom"];
@@ -141,6 +149,66 @@ export namespace main {
 	        this.minSpeedCustom = source["minSpeedCustom"];
 	        this.speedSizeIdx = source["speedSizeIdx"];
 	        this.speedSizeCustom = source["speedSizeCustom"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class TargetPreview {
+	    count: number;
+	    domains: number;
+	    skipped: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new TargetPreview(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.count = source["count"];
+	        this.domains = source["domains"];
+	        this.skipped = source["skipped"];
+	    }
+	}
+
+}
+
+export namespace scanjob {
+	
+	export class ResumeInfo {
+	    // Go type: time
+	    saved: any;
+	    tested: number;
+	    total: number;
+	    healthy: number;
+	    phase: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ResumeInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.saved = this.convertValues(source["saved"], null);
+	        this.tested = source["tested"];
+	        this.total = source["total"];
+	        this.healthy = source["healthy"];
+	        this.phase = source["phase"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

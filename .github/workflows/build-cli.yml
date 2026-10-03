@@ -49,6 +49,10 @@ jobs:
           - goos: linux
             goarch: arm64
             asset: linux-arm64
+          - goos: linux
+            goarch: arm
+            goarm: "7"
+            asset: linux-armv7
           - goos: darwin
             goarch: amd64
             asset: macos-intel
@@ -67,6 +71,7 @@ jobs:
       VERSION: ${{ inputs.version || github.event.inputs.version || '1.1.0' }}
       GOOS: ${{ matrix.goos }}
       GOARCH: ${{ matrix.goarch }}
+      GOARM: ${{ matrix.goarm }}
       CGO_ENABLED: "0"
     steps:
       - uses: actions/checkout@v4

@@ -136,7 +136,8 @@ func (w *LiveResultWriter) flush() error {
 
 func (w *LiveResultWriter) writeLocked() error {
 
-	if len(w.phase1Rows) == 0 {
+	// Nothing to report yet. A Phase 2-only run has no Phase 1 rows, so only skip when both are empty.
+	if len(w.phase1Rows) == 0 && len(w.phase2Rows) == 0 {
 		return nil
 	}
 
