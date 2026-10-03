@@ -1,88 +1,75 @@
+"""Regenerate every icon from logo/logo.png (white ink + one red accent on black).
+
+    python gen_icons.py            # needs Pillow
+
+Outputs: desktop app icon (png + ico), the GUI header mark, and the Android launcher set.
+"""
 import os
-import sys
 from PIL import Image, ImageDraw
 
-def create_rounded_rect(size, radius, fill_color):
-    """Create a rounded rectangle image"""
-    img = Image.new('RGBA', size, (0, 0, 0, 0))
-    draw = ImageDraw.Draw(img)
-    draw.rounded_rectangle([(0, 0), size], radius, fill=fill_color)
-    return img
+ROOT = os.path.dirname(os.path.abspath(__file__))
+RES = os.path.join(ROOT, "android", "app", "src", "main", "res")
+BLACK = (0, 0, 0, 255)
 
-def create_circle(size, fill_color):
-    """Create a circular image"""
-    img = Image.new('RGBA', size, (0, 0, 0, 0))
-    draw = ImageDraw.Draw(img)
-    draw.ellipse([(0, 0), size], fill=fill_color)
-    return img
 
-def generate_icons(project_dir):
-    res_dir = os.path.join(project_dir, 'android', 'app', 'src', 'main', 'res')
-    foreground_raw_path = os.path.join(res_dir, 'drawable', 'ic_launcher_foreground_raw.png')
-    
-    if not os.path.exists(foreground_raw_path):
-        print(f"File not found: {foreground_raw_path}")
-        return
+def load_art(path):
+    """Crop the logo to its ink, add a little margin, and return it as a black square."""
+    img = Image.open(path).convert("RGB")
+    ink = img.convert("L").point(lambda v: 255 if v > 24 else 0)
+    img = img.crop(ink.getbbox())
+    side = int(max(img.size) * 1.08)
+    sq = Image.new("RGBA", (side, side), BLACK)
+    sq.paste(img, ((side - img.width) // 2, (side - img.height) // 2))
+    return sq
 
-    # Background color is #F6821F
-    bg_color = (246, 130, 31, 255)
-    
-    # Load foreground and crop transparency
-    fg_img = Image.open(foreground_raw_path).convert("RGBA")
-    bbox = fg_img.getbbox()
-    if bbox:
-        fg_img = fg_img.crop(bbox)
-    
-    densities = {
-        'mdpi': 48,
-        'hdpi': 72,
-        'xhdpi': 96,
-        'xxhdpi': 144,
-        'xxxhdpi': 192
-    }
-    
-    for density, size in densities.items():
-        mipmap_dir = os.path.join(res_dir, f'mipmap-{density}')
-        os.makedirs(mipmap_dir, exist_ok=True)
-        
-        # Calculate foreground size (about 75% of total size to allow padding)
-        # Standard icon is 48dp, safe zone is inner 30dp or so
-        fg_size = int(size * 0.75)
-        fg_resized = fg_img.resize((fg_size, fg_size), Image.Resampling.LANCZOS)
-        
-        # Center coordinate
-        offset = ((size - fg_size) // 2, (size - fg_size) // 2)
-        
-        # 1. Square / Rounded Rect icon (ic_launcher.png)
-        # Android 7 and below standard is rounded rect or square. Let's do rounded rect (radius = size * 0.08)
-        radius = int(size * 0.08)
-        square_bg = create_rounded_rect((size, size), radius, bg_color)
-        square_bg.paste(fg_resized, offset, fg_resized)
-        square_bg.save(os.path.join(mipmap_dir, 'ic_launcher.png'))
-        
-        # 2. Round icon (ic_launcher_round.png)
-        round_bg = create_circle((size, size), bg_color)
-        round_bg.paste(fg_resized, offset, fg_resized)
-        round_bg.save(os.path.join(mipmap_dir, 'ic_launcher_round.png'))
-        
-        # 3. Save a properly scaled foreground PNG to be used directly in adaptive icon
-        # For adaptive icons, the base size is 108dp. But it's vector-based.
-        # If we use PNG, it should be 108x108.
-        # We'll generate a 432x432 (xxxhdpi equivalent for 108dp) transparent foreground
-        if density == 'xxxhdpi':
-            adaptive_size = 432
-            adaptive_fg_size = int(432 * 0.8) # Foreground takes ~80% to fill space well without clipping too much
-            adaptive_fg_resized = fg_img.resize((adaptive_fg_size, adaptive_fg_size), Image.Resampling.LANCZOS)
-            adaptive_fg = Image.new('RGBA', (adaptive_size, adaptive_size), (0, 0, 0, 0))
-            adaptive_offset = ((adaptive_size - adaptive_fg_size) // 2, (adaptive_size - adaptive_fg_size) // 2)
-            adaptive_fg.paste(adaptive_fg_resized, adaptive_offset, adaptive_fg_resized)
-            
-            # Save it to drawable-nodpi so we don't need the inset xml
-            nodpi_dir = os.path.join(res_dir, 'drawable-nodpi')
-            os.makedirs(nodpi_dir, exist_ok=True)
-            adaptive_fg.save(os.path.join(nodpi_dir, 'ic_launcher_foreground_adaptive.png'))
 
-    print(f"Generated icons for {project_dir}")
+def fit(art, size, scale=1.0):
+    """Art scaled to `scale` of a size x size black canvas, centred."""
+    inner = max(1, int(size * scale))
+    out = Image.new("RGBA", (size, size), BLACK)
+    a = art.resize((inner, inner), Image.Resampling.LANCZOS)
+    out.paste(a, ((size - inner) // 2, (size - inner) // 2))
+    return out
 
-if __name__ == '__main__':
-    generate_icons(r'C:\Users\user\Desktop\app\goose\New folder\SenPaiScanner-main')
+
+def circle(img):
+    mask = Image.new("L", img.size, 0)
+    ImageDraw.Draw(mask).ellipse([(0, 0), (img.width - 1, img.height - 1)], fill=255)
+    out = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    out.paste(img, (0, 0), mask)
+    return out
+
+
+def save(img, *parts, **kw):
+    path = os.path.join(ROOT, *parts)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    img.save(path, **kw)
+
+
+def main():
+    art = load_art(os.path.join(ROOT, "logo", "logo.png"))
+    droid = ("android", "app", "src", "main", "res")
+
+    save(fit(art, 1024), "logo", "logo.png")
+    save(fit(art, 1024, 0.9), "desktop", "build", "appicon.png")
+    save(fit(art, 192, 0.96), "desktop", "frontend", "dist", "logo.png")
+    save(fit(art, 256, 0.96), "desktop", "build", "windows", "icon.ico",
+         sizes=[(16, 16), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
+
+    # Android: in-app logo, adaptive foreground (art inside the 66% safe zone), legacy square/round launchers.
+    save(fit(art, 1024), *droid, "drawable-nodpi", "senpai_logo.png")
+    save(fit(art, 432, 0.62), *droid, "drawable-nodpi", "ic_launcher_foreground_adaptive.png")
+    save(fit(art, 460), *droid, "drawable", "ic_launcher_foreground_raw.png")
+    for density, size in {"mdpi": 48, "hdpi": 72, "xhdpi": 96, "xxhdpi": 144, "xxxhdpi": 192}.items():
+        square = fit(art, size, 0.9)
+        save(square, *droid, f"mipmap-{density}", "ic_launcher.png")
+        save(circle(square), *droid, f"mipmap-{density}", "ic_launcher_round.png")
+
+    with open(os.path.join(RES, "values", "colors.xml"), "w", encoding="utf-8", newline="\n") as f:
+        f.write('<?xml version="1.0" encoding="utf-8"?>\n<resources>\n'
+                '    <color name="ic_launcher_background">#000000</color>\n</resources>\n')
+    print("icons regenerated from logo/logo.png")
+
+
+if __name__ == "__main__":
+    main()

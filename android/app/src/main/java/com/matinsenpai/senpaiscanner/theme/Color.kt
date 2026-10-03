@@ -2,17 +2,19 @@ package com.matinsenpai.senpaiscanner.theme
 
 import androidx.compose.ui.graphics.Color
 
-val SignalBackground = Color(0xFF050B12)
-val SignalPanel = Color(0xFF091521)
-val SignalPanelRaised = Color(0xFF0D1D2B)
-val SignalBorder = Color(0xFF1B3445)
-val SignalGrid = Color(0xFF173449)
-val SignalCyan = Color(0xFF28D7F4)
-val SignalGreen = Color(0xFF45E39A)
-val SignalAmber = Color(0xFFF5B942)
-val SignalDanger = Color(0xFFFF5C72)
-val SignalText = Color(0xFFE7F2F8)
-val SignalMuted = Color(0xFF8198A8)
+// Black, white, red - same palette as the desktop app. The Signal* names are kept so the rest of the UI code is untouched:
+// SignalCyan is now the red accent, SignalGreen the white "ok" colour, SignalAmber the grey "warning" colour.
+val SignalBackground = Color(0xFF0A0A0A)
+val SignalPanel = Color(0xFF111111)
+val SignalPanelRaised = Color(0xFF161616)
+val SignalBorder = Color(0xFF2B2B2B)
+val SignalGrid = Color(0xFF1E1E1E)
+val SignalCyan = Color(0xFFEE2B38)
+val SignalGreen = Color(0xFFF4F4F1)
+val SignalAmber = Color(0xFF8D8D88)
+val SignalDanger = Color(0xFFEE2B38)
+val SignalText = Color(0xFFF4F4F1)
+val SignalMuted = Color(0xFF8D8D88)
 
 // Compatibility aliases for the small legacy sample screen still in-tree.
 val SenPaiOrange = SignalCyan
