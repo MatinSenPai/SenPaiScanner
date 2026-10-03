@@ -76,14 +76,15 @@ func buildOutbound(cfg *VLESSConfig) map[string]interface{} {
 }
 
 func buildVMessOutbound(cfg *VLESSConfig) map[string]interface{} {
+	dialHost, dialPort := cfg.dialTarget()
 	return map[string]interface{}{
 		"tag":      "proxy",
 		"protocol": "vmess",
 		"settings": map[string]interface{}{
 			"vnext": []map[string]interface{}{
 				{
-					"address": cfg.Address,
-					"port":    cfg.Port,
+					"address": dialHost,
+					"port":    dialPort,
 					"users": []map[string]interface{}{
 						{
 							"id":       cfg.UUID,
@@ -99,6 +100,7 @@ func buildVMessOutbound(cfg *VLESSConfig) map[string]interface{} {
 }
 
 func buildVLESSOutbound(cfg *VLESSConfig) map[string]interface{} {
+	dialHost, dialPort := cfg.dialTarget()
 	users := []map[string]interface{}{
 		{
 			"id":         cfg.UUID,
@@ -115,8 +117,8 @@ func buildVLESSOutbound(cfg *VLESSConfig) map[string]interface{} {
 		"settings": map[string]interface{}{
 			"vnext": []map[string]interface{}{
 				{
-					"address": cfg.Address,
-					"port":    cfg.Port,
+					"address": dialHost,
+					"port":    dialPort,
 					"users":   users,
 				},
 			},
@@ -126,14 +128,15 @@ func buildVLESSOutbound(cfg *VLESSConfig) map[string]interface{} {
 }
 
 func buildTrojanOutbound(cfg *VLESSConfig) map[string]interface{} {
+	dialHost, dialPort := cfg.dialTarget()
 	return map[string]interface{}{
 		"tag":      "proxy",
 		"protocol": "trojan",
 		"settings": map[string]interface{}{
 			"servers": []map[string]interface{}{
 				{
-					"address":  cfg.Address,
-					"port":     cfg.Port,
+					"address":  dialHost,
+					"port":     dialPort,
 					"password": cfg.Password,
 				},
 			},
@@ -166,6 +169,18 @@ func buildStreamSettings(cfg *VLESSConfig) map[string]interface{} {
 		}
 		if len(cfg.ALPN) > 0 {
 			tls["alpn"] = cfg.ALPN
+		}
+		if p := cfg.AntiDPI; p.Enabled {
+			// Anti-DPI values win over the link's own (the fragmenter itself lives in StartAntiDPI).
+			if p.Fingerprint != "" {
+				tls["fingerprint"] = p.Fingerprint
+			}
+			if a := p.ALPNList(); len(a) > 0 {
+				tls["alpn"] = a
+			}
+			if p.CipherSuites != "" {
+				tls["cipherSuites"] = p.CipherSuites
+			}
 		}
 		stream["tlsSettings"] = tls
 	}

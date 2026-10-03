@@ -175,6 +175,7 @@ func RunPhase2(ctx context.Context, rawURL string, topIPs []*result.Result, minS
 			defer func() { <-sem }()
 
 			swapped := cfg.WithEndpoint(r.IP.String(), r.Port)
+			swapped.AntiDPI = CurrentAntiDPI()
 			swapped.SpeedURL = speedURL
 			swapped.SpeedSize = speedSize
 			swapped.UploadTest = uploadTest

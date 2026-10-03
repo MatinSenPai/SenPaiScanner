@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/matinsenpai/senpaiscanner/internal/antidpi"
 	"github.com/matinsenpai/senpaiscanner/internal/result"
 )
 
@@ -37,6 +38,10 @@ type Config struct {
 	WebSocketHost      string // empty = SNI
 	WebSocketPath      string // empty = /
 	RequireWebSocket   bool   // require a successful WebSocket probe for HTTP health
+
+	// AntiDPI fragments the ClientHello of every probe connection (zero value = off). An invalid
+	// profile is ignored here; callers validate it with AntiDPI.Validate before scanning.
+	AntiDPI antidpi.Profile
 }
 
 // WithPort returns a copy of Config targeting another remote port.
@@ -81,6 +86,9 @@ func ParseMode(s string) (Mode, error) {
 
 // Probe runs a full measurement session against ip and returns a Result.
 func Probe(ctx context.Context, ip net.IP, cfg Config) *result.Result {
+	if actx, err := antidpi.With(ctx, cfg.AntiDPI); err == nil {
+		ctx = actx
+	}
 	r := &result.Result{
 		IP:        ip,
 		Port:      cfg.Port,
@@ -169,7 +177,7 @@ func probeTCP(ctx context.Context, ip net.IP, port int, timeout time.Duration) t
 
 	d := net.Dialer{}
 	start := time.Now()
-	conn, err := d.DialContext(dialCtx, "tcp", addr)
+	conn, err := d.DialContext(dialCtx, "tcp", addr) // bare connect: nothing to fragment
 	if err != nil {
 		return 0
 	}
@@ -185,23 +193,21 @@ func probeTLS(ctx context.Context, ip net.IP, port int, sni string, timeout time
 	dialCtx, cancel := context.WithDeadline(ctx, dl)
 	defer cancel()
 
-	d := tls.Dialer{
-		NetDialer: &net.Dialer{},
-		Config: &tls.Config{
-			ServerName:         sni,
-			InsecureSkipVerify: insecure,
-			MinVersion:         tls.VersionTLS12,
-		},
-	}
-
 	start := time.Now()
-	conn, err := d.DialContext(dialCtx, "tcp", addr)
+	raw, err := antidpi.Dial(dialCtx, &net.Dialer{}, "tcp", addr)
 	if err != nil {
 		return 0, false
 	}
-	lat := time.Since(start)
-	conn.Close()
-	return lat, true
+	defer raw.Close()
+	conn := tls.Client(raw, antidpi.TLS(ctx, &tls.Config{
+		ServerName:         sni,
+		InsecureSkipVerify: insecure,
+		MinVersion:         tls.VersionTLS12,
+	}))
+	if err := conn.HandshakeContext(dialCtx); err != nil {
+		return 0, false
+	}
+	return time.Since(start), true
 }
 
 // phase1TraceSNIs are fallback SNI hostnames for /cdn-cgi/trace when the
@@ -275,13 +281,13 @@ func probeTrace(ctx context.Context, ip net.IP, port int, host string, timeout t
 	// phase impossible and producing false-positive packet loss.
 	transport := &http.Transport{
 		DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
-			return (&net.Dialer{Timeout: dialTimeout}).DialContext(ctx, network, addr)
+			return antidpi.Dial(ctx, &net.Dialer{Timeout: dialTimeout}, network, addr)
 		},
-		TLSClientConfig: &tls.Config{
+		TLSClientConfig: antidpi.TLS(ctx, &tls.Config{
 			ServerName:         host,
 			MinVersion:         tls.VersionTLS12,
 			InsecureSkipVerify: insecure,
-		},
+		}),
 		DisableKeepAlives:   true,
 		TLSHandshakeTimeout: handshakeTimeout,
 	}
@@ -353,17 +359,17 @@ func probeWebSocket(ctx context.Context, ip net.IP, port int, sni, host, path st
 
 	wsDialTimeout := max(timeout/3, min(2*time.Second, timeout))
 	dialer := &net.Dialer{Timeout: wsDialTimeout}
-	conn, err := dialer.DialContext(wsCtx, "tcp", addr)
+	conn, err := antidpi.Dial(wsCtx, dialer, "tcp", addr)
 	if err != nil {
 		return false
 	}
 	defer conn.Close()
 
-	tlsConn := tls.Client(conn, &tls.Config{
+	tlsConn := tls.Client(conn, antidpi.TLS(ctx, &tls.Config{
 		ServerName:         sni,
 		MinVersion:         tls.VersionTLS12,
 		InsecureSkipVerify: true, // cert already verified in probeHTTP
-	})
+	}))
 	_ = tlsConn.SetDeadline(deadline)
 	if err := tlsConn.HandshakeContext(wsCtx); err != nil {
 		return false
@@ -467,16 +473,16 @@ func probeStability(ctx context.Context, ip net.IP, port int, sni string, timeou
 	dialCtx, cancel := context.WithTimeout(ctx, max(timeout, 3*time.Second))
 	defer cancel()
 
-	conn, err := dialer.DialContext(dialCtx, "tcp", addr)
+	conn, err := antidpi.Dial(dialCtx, dialer, "tcp", addr)
 	if err != nil {
 		return false
 	}
 
-	tlsConn := tls.Client(conn, &tls.Config{
+	tlsConn := tls.Client(conn, antidpi.TLS(ctx, &tls.Config{
 		ServerName:         sni,
 		MinVersion:         tls.VersionTLS12,
 		InsecureSkipVerify: true,
-	})
+	}))
 
 	handshakeTimeout := max(timeout/2, min(3*time.Second, timeout))
 	handshakeCtx, handshakeCancel := context.WithTimeout(ctx, handshakeTimeout)
@@ -530,13 +536,13 @@ func probeDownload(ctx context.Context, ip net.IP, port int, timeout time.Durati
 
 	transport := &http.Transport{
 		DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
-			return (&net.Dialer{Timeout: dialTimeout}).DialContext(ctx, network, addr)
+			return antidpi.Dial(ctx, &net.Dialer{Timeout: dialTimeout}, network, addr)
 		},
-		TLSClientConfig: &tls.Config{
+		TLSClientConfig: antidpi.TLS(ctx, &tls.Config{
 			ServerName:         "speed.cloudflare.com",
 			MinVersion:         tls.VersionTLS12,
 			InsecureSkipVerify: insecure,
-		},
+		}),
 		DisableKeepAlives:   true,
 		TLSHandshakeTimeout: handshakeTimeout,
 	}

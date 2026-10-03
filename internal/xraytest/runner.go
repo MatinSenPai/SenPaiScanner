@@ -84,6 +84,13 @@ func validateOnce(ctx context.Context, cfg *VLESSConfig, timeout time.Duration) 
 		Transport: cfg.Network,
 	}
 
+	cfg, stopAntiDPI, err := StartAntiDPI(cfg)
+	if err != nil {
+		res.Error = fmt.Sprintf("anti-dpi: %v", err)
+		return res
+	}
+	defer stopAntiDPI()
+
 	socksPort := nextPort()
 
 	configJSON, err := BuildXrayConfig(cfg, socksPort)
