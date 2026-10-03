@@ -215,3 +215,22 @@ func TestSortBySpeedKeepsHealthyResultsAheadOfUntestedFailures(t *testing.T) {
 		t.Fatalf("first result after speed sort = %s, want 1.1.1.2", results[0].IP)
 	}
 }
+
+// A one-try download probe has a single latency, so IsHealthy is always false; DownloadOK must still pass it.
+func TestDownloadOKForSingleTryProbe(t *testing.T) {
+	r := &Result{Latencies: []time.Duration{120 * time.Millisecond}, ProbeMode: "http", HTTPStatus: 200, Throughput: 250_000}
+	if r.IsHealthy() {
+		t.Fatal("precondition: one try can never be healthy")
+	}
+	if !r.DownloadOK() {
+		t.Error("a successful download sample must count")
+	}
+	r.Throughput = 0
+	if r.DownloadOK() {
+		t.Error("no throughput means the sample failed")
+	}
+	r.Throughput, r.HTTPStatus = 250_000, 503
+	if r.DownloadOK() {
+		t.Error("an error status means the sample failed")
+	}
+}

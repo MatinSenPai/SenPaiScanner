@@ -376,7 +376,7 @@ func runConfigPhase1(opts configPhase1Options) {
 			}
 		}
 	}
-	runConfigPortProbes(ctx, ipStream, ports, opts.concurrency, probeCfg, callback, neighbor)
+	runConfigPortProbesWithProbe(ctx, ipStream, ports, opts.concurrency, probeCfg, callback, neighbor, limitedProbe(opts.ratePerSec))
 
 	if prog != nil {
 		prog.Send(ConfigPhase1DoneMsg{})

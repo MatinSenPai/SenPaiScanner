@@ -14,6 +14,10 @@ export function CopyText(arg1) {
   return window['go']['main']['App']['CopyText'](arg1);
 }
 
+export function DiscardResume() {
+  return window['go']['main']['App']['DiscardResume']();
+}
+
 export function ExportAllToDisk(arg1, arg2) {
   return window['go']['main']['App']['ExportAllToDisk'](arg1, arg2);
 }
@@ -28,6 +32,14 @@ export function GetVersion() {
 
 export function Presets() {
   return window['go']['main']['App']['Presets']();
+}
+
+export function PreviewTargets(arg1) {
+  return window['go']['main']['App']['PreviewTargets'](arg1);
+}
+
+export function ResumeInfo() {
+  return window['go']['main']['App']['ResumeInfo']();
 }
 
 export function RetryLastScan() {

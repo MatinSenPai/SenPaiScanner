@@ -6,6 +6,14 @@
 - Anti-DPI switch in the TUI config screen and in the Android scan config; values persist as `anti_dpi` in the shared config file
 - New black / white / red look (square corners, numbered sections, Vazirmatn + JetBrains Mono) across the desktop GUI, the terminal UI and the Android app, with a light theme in the desktop app
 - New logo, banner and social preview; all desktop and Android icons regenerated (`python gen_icons.py`)
+- **Plain text mode for screen readers** (`senpaiscanner --plain`, `scan ...`, `help`): one sentence per line, no colours or redraws, throttled progress announcements, final list and `-output` file (#115 #124 #125)
+- **Paste your own targets**: IPs, CIDRs, ranges and domains in the desktop app and the CLI; domains are resolved; invalid entries are reported (#113)
+- **Skip the reachability scan** and test the pasted list directly, through your config or with a direct download sample (#113)
+- **Gentle mode** (desktop profile switch, terminal UI row, `-gentle`): 25 workers max, 6 s timeout min, 40 probes/s, for ISPs that cut the connection during scans (#25 #56 #62 #96 #75)
+- **Save and resume scans**: progress is saved every 20 s and on stop, the desktop app offers *Resume scan*, the CLI has `scan -resume` (#130 #64)
+- 32-bit ARM CLI build (`cli-linux-armv7`) for 32-bit Termux (#111)
+- Fix: the direct download speed test ("Speed test green results" without a config, and Android) judged a single-try probe with `IsHealthy`, which needs two tries, so every sample was reported as failed (#82)
+- Fix: cancelling a Phase 2 scan on Android did not stop it; the Phase 2 table of the terminal UI dropped the failure reason; the live results file was not written for runs without healthy Phase 1 rows; CSV header and flush errors were ignored; the active-scan cancel function is now mutex-guarded (#133 #134 #107)
 - Tests: byte-for-byte check of the Anti-DPI recipe, a probe test that proves the ClientHello arrives fragmented, and xray outbound tests
 
 ## v1.0.0

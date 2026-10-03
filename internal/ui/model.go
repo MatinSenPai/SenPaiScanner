@@ -231,7 +231,7 @@ type AppModel struct {
 	configURL      string
 	configCountIdx int // index into configCountValues
 	configTopNIdx  int // index into configTopNValues
-	configSetupRow int // 0=source, 1=count, 2=workers, 3=timeout, 4=ports, 5=WebSocket, 6=neighbors, 7=anti-dpi
+	configSetupRow int // 0=source, 1=count, 2=workers, 3=timeout, 4=ports, 5=WebSocket, 6=neighbors, 7=anti-dpi, 8=gentle
 	// quick-scan-style pickers for Phase 1
 	configWorkersIdx    int
 	configTimeoutIdx    int
@@ -317,6 +317,9 @@ type SavedConfig struct {
 
 	// AntiDPI is the editable recipe (empty in files from before Anti-DPI = published defaults).
 	AntiDPI antidpi.Profile `json:"anti_dpi"`
+
+	// Gentle is the low-impact scan profile (see internal/scanjob).
+	Gentle bool `json:"gentle"`
 }
 
 // AppConfig wraps SavedConfig to allow for future settings.
@@ -387,6 +390,7 @@ func defaultAppConfig() AppConfig {
 
 func (m *AppModel) applySavedConfig(cfg SavedConfig) {
 	SetAntiDPI(cfg.AntiDPI)
+	SetGentle(cfg.Gentle)
 	m.configIPMode = cfg.IPMode
 	m.configCountIdx = cfg.CountIdx
 	m.configCountCustom = cfg.CountCustom
@@ -2067,6 +2071,16 @@ func (m AppModel) viewScanWithConfig() string {
 		sb.WriteString(adpi + "\n")
 		sb.WriteString(styleDim.Render("            fragment the TLS ClientHello (tlshello 0/104/1 + 114/1); edit values in anti_dpi of the config file or in the desktop app") + "\n\n")
 
+		// Row 8: Gentle profile
+		rowLabel(8, "  Profile")
+		sb.WriteString(" ")
+		prof := styleGood.Render("FAST")
+		if Gentle() {
+			prof = styleAccent.Render("GENTLE")
+		}
+		sb.WriteString(prof + "\n")
+		sb.WriteString(styleDim.Render("            gentle = at most 25 workers, 6 s timeout, 40 probes/s, for connections that drop during scans") + "\n\n")
+
 		hint := "  ↑/↓ row   ←/→ option   enter continue   esc back"
 		if m.configCustomMode {
 			hint = "  type value   enter confirm   esc cancel"
@@ -2277,7 +2291,7 @@ func (m AppModel) handleScanWithConfigKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	// --- Setup navigation (Source → Count → Workers → Timeout → Ports → WebSocket → Neighbors) ---
-	const maxRow = 7
+	const maxRow = 8
 
 	configNavLeft := func() {
 		switch m.configSetupRow {
@@ -2307,6 +2321,8 @@ func (m AppModel) handleScanWithConfigKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.configNeighborScan = !m.configNeighborScan
 		case 7:
 			ToggleAntiDPI()
+		case 8:
+			SetGentle(!Gentle())
 		}
 	}
 	configNavRight := func() {
@@ -2337,6 +2353,8 @@ func (m AppModel) handleScanWithConfigKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.configNeighborScan = !m.configNeighborScan
 		case 7:
 			ToggleAntiDPI()
+		case 8:
+			SetGentle(!Gentle())
 		}
 	}
 
@@ -2376,6 +2394,10 @@ func (m AppModel) handleScanWithConfigKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		if m.configSetupRow == 7 {
 			ToggleAntiDPI()
+			return m, nil
+		}
+		if m.configSetupRow == 8 {
+			SetGentle(!Gentle())
 			return m, nil
 		}
 	case "enter":
@@ -2790,6 +2812,7 @@ func (m AppModel) launchPhase1FromOptional() (AppModel, tea.Cmd) {
 		RequireWS:       m.scanCfg.RequireWS,
 		NeighborScan:    m.configNeighborScan,
 		AntiDPI:         CurrentAntiDPI(),
+		Gentle:          Gentle(),
 	}
 	for port, on := range m.configSelectedPorts {
 		if on {
@@ -3175,6 +3198,7 @@ type configPhase1Options struct {
 	fromFile     bool
 	requireWS    bool
 	neighborScan bool
+	ratePerSec   float64 // 0 = unlimited (Gentle profile sets it)
 }
 
 func (m AppModel) startConfigPhase1() tea.Cmd {
@@ -3226,10 +3250,12 @@ func (m AppModel) resolvePhase1Options() configPhase1Options {
 		concurrency = 50
 	}
 
+	concurrency, timeout, ratePerSec := gentleLimits(concurrency, m.resolveTimeout())
 	return configPhase1Options{
 		count:        count,
 		concurrency:  concurrency,
-		timeout:      m.resolveTimeout(),
+		timeout:      timeout,
+		ratePerSec:   ratePerSec,
 		rawURL:       m.configURL,
 		ports:        m.resolveConfigPorts(),
 		fromFile:     m.configIPMode == 1,

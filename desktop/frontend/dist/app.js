@@ -20,6 +20,7 @@ const state = {
     minSpeedIdx: 0, minSpeedCustom: "",
     speedSizeIdx: 1, speedSizeCustom: "",
     uploadTest: false,
+    gentle: false, targets: "", phase2Only: false,
     antiDpi: { enabled: true, finalmask: "", fingerprint: "", alpn: "", cipherSuites: "" },
   },
   scan: { running: false, phase: 0, cancelled: false, manualSpeed: false, livePath: "", status: "idle" },
@@ -64,6 +65,9 @@ const els = {
   toggleRequireWS: $("#toggleRequireWS"), toggleNeighbors: $("#toggleNeighbors"), toggleUpload: $("#toggleUpload"),
   exportSub: $("#exportSub"), exportSingbox: $("#exportSingbox"), exportClash: $("#exportClash"), exportNote: $("#exportNote"),
   exportCallout: $("#exportCallout"), subCount: $("#subCount"), toast: $("#toast"),
+  resumeBanner: $("#resumeBanner"), resumeText: $("#resumeText"), btnResume: $("#btnResume"), btnDiscardResume: $("#btnDiscardResume"),
+  pasteBox: $("#pasteBox"), targetsText: $("#targetsText"), targetsHint: $("#targetsHint"), togglePhase2Only: $("#togglePhase2Only"),
+  profileHint: $("#profileHint"), ipModeHint: $("#ipModeHint"),
   toggleAntiDpi: $("#toggleAntiDpi"), antidpiBody: $("#antidpiBody"), adFinalmask: $("#adFinalmask"), adFingerprint: $("#adFingerprint"),
   adAlpn: $("#adAlpn"), adCiphers: $("#adCiphers"), adError: $("#adError"), btnAdDefaults: $("#btnAdDefaults"), themeBtn: $("#themeBtn"),
 };
@@ -121,9 +125,19 @@ function buildSegments() {
     button.onclick = () => {
       state.settings.ipMode = Number(button.dataset.val) || 0;
       ipMode.querySelectorAll("button").forEach((item) => item.classList.toggle("on", item === button));
+      syncSource();
     };
   });
   ipMode.querySelectorAll("button").forEach((button) => button.classList.toggle("on", Number(button.dataset.val) === state.settings.ipMode));
+  syncSource();
+  const profile = $("[data-seg='profile']");
+  profile.querySelectorAll("button").forEach((button) => {
+    button.classList.toggle("on", (Number(button.dataset.val) === 1) === state.settings.gentle);
+    button.onclick = () => { state.settings.gentle = Number(button.dataset.val) === 1; buildSegments(); };
+  });
+  els.profileHint.textContent = state.settings.gentle
+    ? "Gentle: at most 25 workers, 6 s timeout and 40 probes per second, so the ISP does not cut your connection."
+    : "Full speed. Use Gentle if your connection drops while scanning.";
 
   Object.entries(SEGS).forEach(([key, def]) => {
     const root = $(`[data-seg='${key}']`);
@@ -142,6 +156,43 @@ function buildSegments() {
     });
     syncCustomField(key);
   });
+}
+
+const IP_HINTS = ["Random uses weighted Cloudflare IPv4 ranges.", "Reads ips.txt next to the app.", "Paste your own addresses below."];
+function syncSource() {
+  const mode = state.settings.ipMode;
+  els.ipModeHint.textContent = IP_HINTS[mode] || IP_HINTS[0];
+  els.pasteBox.classList.toggle("hidden", mode !== 2);
+}
+
+let previewTimer;
+function previewTargets() {
+  clearTimeout(previewTimer);
+  state.settings.targets = els.targetsText.value;
+  previewTimer = setTimeout(async () => {
+    const text = els.targetsText.value.trim();
+    if (!text) { els.targetsHint.textContent = "IPs, CIDRs, ranges and domains. Separate with spaces, commas or new lines."; els.targetsHint.classList.remove("err"); return; }
+    const response = await invoke(App?.PreviewTargets, text);
+    if (!response.ok || !response.value) return;
+    const p = response.value;
+    const skipped = (p.skipped || []).length;
+    els.targetsHint.textContent = `${p.count.toLocaleString()} addresses found${p.domains ? `, ${p.domains} domain${p.domains === 1 ? "" : "s"} resolved` : ""}${skipped ? `, ${skipped} skipped (${p.skipped[0]})` : ""}.`;
+    els.targetsHint.classList.toggle("err", p.count === 0);
+  }, 400);
+}
+
+async function loadResumeBanner() {
+  if (!App) return;
+  const response = await invoke(App.ResumeInfo);
+  const info = response.value;
+  const show = response.ok && info && info.total > 0 && !state.scan.running;
+  els.resumeBanner.classList.toggle("hidden", !show);
+  if (show) {
+    const when = new Date(info.saved).toLocaleString();
+    els.resumeText.textContent = info.phase === 2
+      ? `Saved ${when} · reachability finished, ${info.healthy} healthy · speed tests continue`
+      : `Saved ${when} · ${info.tested.toLocaleString()} of ${info.total.toLocaleString()} tested · ${info.healthy} healthy`;
+  }
 }
 
 function syncCustomField(key) {
@@ -211,6 +262,9 @@ function readSettings() {
     speedSize: Math.round(speedSize),
     uploadTest: state.settings.uploadTest,
     antiDpi: readAntiDpi(),
+    gentle: state.settings.gentle,
+    targets: state.settings.ipMode === 2 ? els.targetsText.value : "",
+    phase2Only: state.settings.ipMode === 2 && state.settings.phase2Only,
     countIdx: state.settings.countIdx, countCustom: state.settings.countCustom,
     workersIdx: state.settings.workersIdx, workersCustom: state.settings.workersCustom,
     timeoutIdx: state.settings.timeoutIdx, timeoutCustom: state.settings.timeoutCustom,
@@ -229,6 +283,7 @@ function applyParams(params) {
   s.requireWS = params.requireWS !== false;
   s.neighborScan = !!params.neighborScan;
   s.uploadTest = !!params.uploadTest;
+  s.gentle = !!params.gentle;
   els.configUrl.value = params.configUrl || "";
   els.speedUrl.value = params.speedUrl || "";
   buildSegments();
@@ -500,6 +555,7 @@ async function speedTestGreen() {
 
 async function onScanDone(payload = {}) {
   state.scan.running = false;
+  loadResumeBanner();
   state.scan.cancelled = !!payload.cancelled;
   state.workingEndpoints = payload.workingEndpoints || [];
   if (payload.manualSpeed) {
@@ -580,6 +636,7 @@ function wireEvents() {
   });
   Runtime.EventsOn("scan:done", onScanDone);
   Runtime.EventsOn("scan:error", (message) => toast(message));
+  Runtime.EventsOn("scan:info", (message) => toast(message));
 }
 
 function wireControls() {
@@ -645,6 +702,18 @@ function wireControls() {
   });
   els.configUrl.oninput = () => mark(D.ACTIONS);
 
+  els.targetsText.oninput = previewTargets;
+  els.togglePhase2Only.onclick = () => { state.settings.phase2Only = !state.settings.phase2Only; setToggle(els.togglePhase2Only, state.settings.phase2Only); };
+  els.btnResume.onclick = async () => {
+    const params = { ...readSettings(), resume: true };
+    const response = await invoke(App?.StartScan, params);
+    if (!response.ok) return;
+    resetRun({ ...params, count: 0, ports: [0] });
+    els.resumeBanner.classList.add("hidden");
+    switchTab("results");
+  };
+  els.btnDiscardResume.onclick = async () => { await invoke(App?.DiscardResume); els.resumeBanner.classList.add("hidden"); toast("The saved scan was discarded."); };
+
   els.toggleAntiDpi.onclick = () => {
     state.settings.antiDpi.enabled = !state.settings.antiDpi.enabled;
     syncAntiDpi();
@@ -699,6 +768,7 @@ async function init() {
   setToggle(els.toggleNeighbors, state.settings.neighborScan);
   setToggle(els.toggleUpload, state.settings.uploadTest);
   wireControls();
+  loadResumeBanner();
   if (App) wireEvents();
   else toast("Preview mode · launch through Wails to scan.");
   const previewTab = location.hash.slice(1);

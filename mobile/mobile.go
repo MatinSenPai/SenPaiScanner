@@ -720,7 +720,7 @@ func runSpeedTest(configJson string, candidates []*result.Result, callback Callb
 			return
 		}
 		measured := prober.Probe(ctx, candidate.IP, base.WithPort(candidate.Port))
-		success := measured.IsHealthy() && measured.Throughput > 0
+		success := measured.DownloadOK()
 		if success {
 			passed++
 		}

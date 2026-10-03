@@ -16,9 +16,9 @@ import (
 
 	"github.com/matinsenpai/senpaiscanner/internal/antidpi"
 	"github.com/matinsenpai/senpaiscanner/internal/export"
-	"github.com/matinsenpai/senpaiscanner/internal/ipsrc"
 	"github.com/matinsenpai/senpaiscanner/internal/prober"
 	"github.com/matinsenpai/senpaiscanner/internal/result"
+	"github.com/matinsenpai/senpaiscanner/internal/scanjob"
 	"github.com/matinsenpai/senpaiscanner/internal/ui"
 	"github.com/matinsenpai/senpaiscanner/internal/xraytest"
 	"github.com/matinsenpai/senpaiscanner/pkg/version"
@@ -125,6 +125,13 @@ type ScanParams struct {
 	UploadTest   bool    `json:"uploadTest"`
 	NeighborScan bool    `json:"neighborScan"`
 
+	// Gentle caps workers/rate for ISPs that drop the connection; Targets/Phase2Only replace the random pool;
+	// Resume continues the scan saved by the previous session.
+	Gentle     bool   `json:"gentle"`
+	Targets    string `json:"targets"`
+	Phase2Only bool   `json:"phase2Only"`
+	Resume     bool   `json:"resume"`
+
 	// AntiDPI is the editable ClientHello-fragmentation recipe (see internal/antidpi).
 	AntiDPI antidpi.Profile `json:"antiDpi"`
 
@@ -148,8 +155,12 @@ func (p ScanParams) toSavedConfig() ui.SavedConfig {
 	if len(ports) == 0 {
 		ports = []int{0}
 	}
+	ipMode := p.IPMode
+	if ipMode > 1 { // a pasted list is not a source the terminal UI knows; fall back to the random pool
+		ipMode = 0
+	}
 	return ui.SavedConfig{
-		IPMode:          p.IPMode,
+		IPMode:          ipMode,
 		CountIdx:        p.CountIdx,
 		CountCustom:     p.CountCustom,
 		WorkersIdx:      p.WorkersIdx,
@@ -169,6 +180,7 @@ func (p ScanParams) toSavedConfig() ui.SavedConfig {
 		RequireWS:       p.RequireWS,
 		NeighborScan:    p.NeighborScan,
 		AntiDPI:         p.AntiDPI,
+		Gentle:          p.Gentle,
 	}
 }
 
@@ -302,202 +314,101 @@ func (a *App) StopScan() {
 	}
 }
 
-func (a *App) runScan(ctx context.Context, scanID int64, params ScanParams) {
-	configURL := strings.TrimSpace(params.ConfigURL)
-	timeout := time.Duration(params.TimeoutMs) * time.Millisecond
-	if timeout <= 0 {
-		timeout = 5 * time.Second
-	}
+// guiEvents turns scanjob events into the Wails events the frontend listens to.
+type guiEvents struct {
+	a  *App
+	id int64
+}
 
-	// Probe config: exact CLI derivation.
-	probeCfg, err := ui.Phase1ProbeConfig(configURL, timeout, params.RequireWS)
+func (g guiEvents) Phase(phase int, livePath string) {
+	g.a.emit(g.id, "scan:phase", map[string]any{"phase": phase, "livePath": livePath})
+}
+func (g guiEvents) Stats(tested, healthy, total int) {
+	g.a.emit(g.id, "scan:stats", map[string]any{"tested": tested, "healthy": healthy, "failed": tested - healthy, "total": total})
+}
+func (g guiEvents) Results(batch []*result.Result) {
+	out := make([]ScanResult, len(batch))
+	for i, r := range batch {
+		out[i] = toScanResult(r)
+	}
+	g.a.emit(g.id, "scan:results", out)
+}
+func (g guiEvents) Validate(v *xraytest.ValidationResult, done, total int) {
+	g.a.emit(g.id, "validate:result", validationOutcome(v, done, total))
+}
+func (g guiEvents) Info(msg string)  { g.a.emit(g.id, "scan:info", msg) }
+func (g guiEvents) Error(msg string) { g.a.emit(g.id, "scan:error", msg) }
+
+// job maps the form values onto the shared scan runner.
+func (p ScanParams) job() (scanjob.Params, error) {
+	targets := p.Targets
+	if p.IPMode == 1 && strings.TrimSpace(targets) == "" { // ips.txt next to the app
+		ips, err := ui.LoadIPsFile()
+		if err != nil {
+			return scanjob.Params{}, err
+		}
+		if len(ips) == 0 {
+			return scanjob.Params{}, fmt.Errorf("ips.txt is empty — add one IP per line")
+		}
+		if p.Count > 0 && len(ips) > p.Count {
+			ips = ips[:p.Count]
+		}
+		lines := make([]string, len(ips))
+		for i, ip := range ips {
+			lines[i] = ip.String()
+		}
+		targets = strings.Join(lines, "\n")
+	}
+	return scanjob.Params{
+		Count: p.Count, Workers: p.Workers, TimeoutMs: p.TimeoutMs, Ports: p.Ports,
+		ConfigURL: p.ConfigURL, RequireWS: p.RequireWS, TopN: p.TopN, MinSpeed: p.MinSpeed,
+		SpeedURL: p.SpeedURL, SpeedSize: p.SpeedSize, UploadTest: p.UploadTest, NeighborScan: p.NeighborScan,
+		Gentle: p.Gentle, Targets: targets, Phase2Only: p.Phase2Only,
+		StatePath: scanjob.DefaultStatePath(), Resume: p.Resume,
+	}, nil
+}
+
+func (a *App) runScan(ctx context.Context, scanID int64, params ScanParams) {
+	job, err := params.job()
 	if err != nil {
-		a.emit(scanID, "scan:error", fmt.Sprintf("invalid URL: %v", err))
+		a.emit(scanID, "scan:error", err.Error())
 		a.emit(scanID, "scan:done", map[string]any{"cancelled": false})
 		return
 	}
-
-	// Port resolution: 0 = config/URL port.
-	ports := resolvePorts(params.Ports, configURL, probeCfg.Port)
-
-	var ipStream <-chan net.IP
-	neighbor := ui.NeighborScanOpts{}
-	count := params.Count
-	if count <= 0 {
-		count = 1000
-	}
-	totalTarget := count * len(ports)
-	if params.IPMode == 1 {
-		ips, err := ui.LoadIPsFile()
-		if err != nil {
-			a.emit(scanID, "scan:error", err.Error())
-			a.emit(scanID, "scan:done", map[string]any{"cancelled": false})
-			return
-		}
-		if len(ips) == 0 {
-			a.emit(scanID, "scan:error", "ips.txt is empty — add one IP per line")
-			a.emit(scanID, "scan:done", map[string]any{"cancelled": false})
-			return
-		}
-		if len(ips) > count {
-			ips = ips[:count]
-		}
-		totalTarget = len(ips) * len(ports)
-		ch := make(chan net.IP, len(ips))
-		for _, ip := range ips {
-			ch <- ip
-		}
-		close(ch)
-		ipStream = ch
-	} else {
-		src, err := ipsrc.New(true, false, nil)
-		if err != nil {
-			a.emit(scanID, "scan:error", err.Error())
-			a.emit(scanID, "scan:done", map[string]any{"cancelled": false})
-			return
-		}
-		ipStream = src.MahsaNGV4Stream(ctx, count)
-		if params.NeighborScan {
-			neighbor = ui.DefaultNeighborOpts(src.IPv4Nets())
-		}
-	}
-
-	writer, livePath, _ := ui.NewLiveResultWriter(configURL != "")
-	a.emit(scanID, "scan:phase", map[string]any{"phase": 1, "livePath": livePath})
-
-	// Batching emitter: collect results + counters, flush every250ms.
-	var batchMu sync.Mutex
-	var pending []ScanResult
-	var allResults []*result.Result
-	var tested, healthy atomic.Int64
-	var phase1Collected = &allResults
-
-	flush := func() {
-		batchMu.Lock()
-		batch := pending
-		pending = nil
-		t := int(tested.Load())
-		h := int(healthy.Load())
-		batchMu.Unlock()
-
-		a.emit(scanID, "scan:stats", map[string]any{
-			"tested": t, "healthy": h, "failed": t - h, "total": totalTarget,
-		})
-		if len(batch) > 0 {
-			a.emit(scanID, "scan:results", batch)
-		}
-	}
-
-	callback := func(r *result.Result) {
-		if writer != nil {
-			writer.AddPhase1(r)
-		}
-		if r.IsHealthy() {
-			healthy.Add(1)
-		}
-		tested.Add(1)
-		batchMu.Lock()
-		*phase1Collected = append(*phase1Collected, r)
-		pending = append(pending, toScanResult(r))
-		batchMu.Unlock()
-	}
-
-	ticker := time.NewTicker(250 * time.Millisecond)
-	doneTick := make(chan struct{})
-	go func() {
-		for {
-			select {
-			case <-ticker.C:
-				flush()
-			case <-doneTick:
-				ticker.Stop()
-				return
-			}
-		}
-	}()
-
-	ui.RunPortProbes(ctx, ipStream, ports, params.Workers, probeCfg, callback, neighbor)
-
-	close(doneTick)
-	flush()
-
-	cancelled := ctx.Err() != nil
-	batchMu.Lock()
-	collected := *phase1Collected
-	batchMu.Unlock()
+	out := scanjob.Run(ctx, job, guiEvents{a: a, id: scanID})
 	a.mu.Lock()
-	a.phase1Results = append([]*result.Result(nil), collected...)
+	a.phase1Results = append([]*result.Result(nil), out.Phase1...)
 	a.lastParams = params
 	a.mu.Unlock()
-
-	if configURL == "" {
-		if writer != nil {
-			writer.FinishPhase1Only()
-		}
-		a.emit(scanID, "scan:done", map[string]any{
-			"cancelled":        cancelled,
-			"healthy":          int(healthy.Load()),
-			"workingEndpoints": []string{},
-		})
-		return
+	if out.Working == nil {
+		out.Working = []string{}
 	}
-
-	// Phase 2: validate top IPs through xray.
-	topIPs := result.TopN(collected, params.TopN)
-	if len(topIPs) == 0 || cancelled {
-		a.emit(scanID, "scan:done", map[string]any{
-			"cancelled":        cancelled,
-			"healthy":          int(healthy.Load()),
-			"workingEndpoints": []string{},
-		})
-		return
-	}
-
-	if writer != nil {
-		writer.BeginPhase2()
-	}
-	a.emit(scanID, "scan:phase", map[string]any{"phase": 2, "livePath": livePath})
-
-	xrayTimeout := ui.Phase2Timeout(timeout, params.MinSpeed, params.SpeedSize)
-	var validationResults []*xraytest.ValidationResult
-	var valMu sync.Mutex
-
-	err = ui.RunPhase2(ctx, configURL, topIPs, params.MinSpeed, params.SpeedURL,
-		params.SpeedSize, xrayTimeout, params.UploadTest,
-		func(vr *xraytest.ValidationResult, done, total int) {
-			if writer != nil {
-				writer.AddPhase2(vr)
-			}
-			valMu.Lock()
-			validationResults = append(validationResults, vr)
-			valMu.Unlock()
-			a.emit(scanID, "validate:result", ValidationOutcome{
-				IP:               vr.IP,
-				Port:             vr.Port,
-				Transport:        vr.Transport,
-				Success:          vr.Success,
-				LatencyMs:        float64(vr.Latency) / float64(time.Millisecond),
-				Throughput:       vr.Throughput,
-				UploadThroughput: vr.UploadThroughput,
-				Error:            vr.Error,
-				Done:             done,
-				Total:            total,
-			})
-		})
-	if err != nil {
-		a.emit(scanID, "scan:error", err.Error())
-	}
-
-	valMu.Lock()
-	endpoints := ui.WorkingEndpoints(validationResults)
-	valMu.Unlock()
-
 	a.emit(scanID, "scan:done", map[string]any{
-		"cancelled":        ctx.Err() != nil,
-		"healthy":          int(healthy.Load()),
-		"workingEndpoints": endpoints,
+		"cancelled": out.Cancelled, "healthy": out.Healthy, "workingEndpoints": out.Working,
 	})
 }
+
+// TargetPreview is what the paste box shows while the user types.
+type TargetPreview struct {
+	Count   int      `json:"count"`
+	Domains int      `json:"domains"`
+	Skipped []string `json:"skipped"`
+}
+
+// PreviewTargets parses pasted IPs / CIDRs / ranges / domains so the form can say how many addresses it found.
+func (a *App) PreviewTargets(text string) TargetPreview {
+	t := scanjob.ParseTargets(context.Background(), text)
+	return TargetPreview{Count: len(t.IPs), Domains: t.Domains, Skipped: t.Skipped}
+}
+
+// ResumeInfo describes the interrupted scan that can be continued; Total is 0 when there is none.
+func (a *App) ResumeInfo() scanjob.ResumeInfo {
+	info, _ := scanjob.InspectSnapshot(scanjob.DefaultStatePath())
+	return info
+}
+
+// DiscardResume forgets the interrupted scan.
+func (a *App) DiscardResume() { scanjob.DiscardSnapshot(scanjob.DefaultStatePath()) }
 
 // StartSpeedTest tests every currently healthy Phase 1 result. It is intended
 // for the explicit post-stop action in the GUI: users can stop a long scan as
@@ -619,7 +530,7 @@ func (a *App) runSpeedTest(ctx context.Context, scanID int64, params ScanParams,
 				}
 				measured := prober.Probe(ctx, candidate.IP, base.WithPort(candidate.Port))
 				n := int(done.Add(1))
-				success := measured.IsHealthy() && measured.Throughput > 0
+				success := measured.DownloadOK()
 				errText := ""
 				if !success {
 					errText = "download sample failed"
@@ -721,6 +632,7 @@ func (a *App) RetryLastScan() (ScanParams, error) {
 		UploadTest:   cfg.UploadTest,
 		NeighborScan: cfg.NeighborScan,
 		AntiDPI:      ui.CurrentAntiDPI(),
+		Gentle:       cfg.Gentle,
 
 		CountIdx:        cfg.CountIdx,
 		CountCustom:     cfg.CountCustom,
