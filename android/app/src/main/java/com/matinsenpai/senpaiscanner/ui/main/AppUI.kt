@@ -72,6 +72,12 @@ fun AppUI(viewModel: MainViewModel = viewModel()) {
         onSpeedTest = viewModel::startSpeedTest,
         onGenerateExports = viewModel::generateExports,
         onDismissError = viewModel::dismissError,
+        onResume = viewModel::resumeScan,
+        onDiscardResume = viewModel::discardResume,
+        onTargetsChange = viewModel::onTargetsChanged,
+        onAntiDpiChange = viewModel::onAntiDpiChanged,
+        onAntiDpiDefaults = viewModel::restoreAntiDpiDefaults,
+        onDismissNotice = viewModel::dismissNotice,
     )
 }
 
@@ -84,6 +90,12 @@ fun SignalDeskApp(
     onSpeedTest: () -> Unit,
     onGenerateExports: () -> Unit,
     onDismissError: () -> Unit,
+    onResume: () -> Unit = {},
+    onDiscardResume: () -> Unit = {},
+    onTargetsChange: (String) -> Unit = {},
+    onAntiDpiChange: (ScanConfig) -> Unit = onConfigChange,
+    onAntiDpiDefaults: () -> Unit = {},
+    onDismissNotice: () -> Unit = {},
 ) {
     var selectedTab by rememberSaveable { mutableStateOf(DeskTab.SCAN) }
     val snackbar = remember { SnackbarHostState() }
@@ -92,6 +104,13 @@ fun SignalDeskApp(
         uiState.error?.let {
             snackbar.showSnackbar(it)
             onDismissError()
+        }
+    }
+
+    LaunchedEffect(uiState.notice) {
+        uiState.notice?.let {
+            snackbar.showSnackbar(it)
+            onDismissNotice()
         }
     }
 
@@ -137,6 +156,17 @@ fun SignalDeskApp(
                                 selectedTab = DeskTab.RESULTS
                                 onStart()
                             },
+                            resume = uiState.resume,
+                            targetsPreview = uiState.targetsPreview,
+                            antiDpiError = uiState.antiDpiError,
+                            onResume = {
+                                selectedTab = DeskTab.RESULTS
+                                onResume()
+                            },
+                            onDiscardResume = onDiscardResume,
+                            onTargetsChange = onTargetsChange,
+                            onAntiDpiChange = onAntiDpiChange,
+                            onAntiDpiDefaults = onAntiDpiDefaults,
                         )
                         DeskTab.RESULTS -> ResultsScreen(
                             uiState = uiState,

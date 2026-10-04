@@ -15,7 +15,7 @@
 # =============================================================================
 
 param(
-    [string]$Version = "1.1.0",
+    [string]$Version = "1.1.1",
     [switch]$All,
     [string]$Platform = ""
 )
@@ -35,7 +35,7 @@ if (!$Wails) {
 }
 
 # --- version info (same fields as the root build.ps1) -----------------------
-if (!$Version) { $Version = "1.1.0" }
+if (!$Version) { $Version = "1.1.1" }
 $Commit    = ((git rev-parse --short HEAD 2>$null) -replace "`n", "")
 $BuildDate = (Get-Date -Format "yyyy-MM-dd")
 $LdFlags   = "-s -w " +

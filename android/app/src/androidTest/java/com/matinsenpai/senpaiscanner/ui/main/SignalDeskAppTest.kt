@@ -5,6 +5,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import com.matinsenpai.senpaiscanner.theme.SenPaiScannerTheme
 import org.junit.Rule
 import org.junit.Test
@@ -60,5 +61,51 @@ class SignalDeskAppTest {
         composeRule.onNodeWithText("Export").performClick()
         composeRule.onNodeWithText("RAW ENDPOINTS").assertIsDisplayed()
         composeRule.onNodeWithText("CLIENT CONFIGS").assertIsDisplayed()
+    }
+
+    @Test
+    fun scanTab_offersResumeGentleAndAntiDpi() {
+        composeRule.setContent {
+            SenPaiScannerTheme {
+                SignalDeskApp(
+                    uiState = ScanUiState(resume = ResumeInfo(saved = "now", tested = 120, total = 5000, healthy = 7)),
+                    onConfigChange = {},
+                    onStart = {},
+                    onStop = {},
+                    onSpeedTest = {},
+                    onGenerateExports = {},
+                    onDismissError = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("RESUME SCAN").assertIsDisplayed()
+        composeRule.onNodeWithText("Gentle").assertIsDisplayed()
+        composeRule.onNodeWithText("Paste list").assertIsDisplayed()
+        composeRule.onNodeWithText("02 / ANTI-DPI").performScrollTo().assertIsDisplayed()
+    }
+
+    @Test
+    fun pasteMode_showsTargetsBoxAndSkipSwitch() {
+        composeRule.setContent {
+            SenPaiScannerTheme {
+                SignalDeskApp(
+                    uiState = ScanUiState(
+                        config = ScanConfig(sourceType = "Paste", targets = "1.1.1.1"),
+                        targetsPreview = TargetPreview(count = 1),
+                    ),
+                    onConfigChange = {},
+                    onStart = {},
+                    onStop = {},
+                    onSpeedTest = {},
+                    onGenerateExports = {},
+                    onDismissError = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("Your addresses").assertIsDisplayed()
+        composeRule.onNodeWithText("1 addresses found").assertIsDisplayed()
+        composeRule.onNodeWithText("Skip the reachability scan").assertIsDisplayed()
     }
 }

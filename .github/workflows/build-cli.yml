@@ -7,13 +7,13 @@ on:
         description: Release version without the v prefix
         required: false
         type: string
-        default: 1.1.0
+        default: 1.1.1
   workflow_dispatch:
     inputs:
       version:
         description: Release version without the v prefix
         required: true
-        default: 1.1.0
+        default: 1.1.1
   pull_request:
     paths:
       - "**/*.go"
@@ -68,7 +68,7 @@ jobs:
             asset: windows-arm64
             extension: .exe
     env:
-      VERSION: ${{ inputs.version || github.event.inputs.version || '1.1.0' }}
+      VERSION: ${{ inputs.version || github.event.inputs.version || '1.1.1' }}
       GOOS: ${{ matrix.goos }}
       GOARCH: ${{ matrix.goarch }}
       GOARM: ${{ matrix.goarm }}

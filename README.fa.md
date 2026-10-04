@@ -23,7 +23,7 @@
 
 SenPai Scanner یک اسکنر چندسکویی برای endpointهای Cloudflare است که برای شبکه‌های ناپایدار، فیلترشده یا پرتأخیر طراحی شده. ابزار ابتدا edgeهای Cloudflare را سریع بررسی می‌کند، سپس می‌تواند بهترین کاندیداها را با هسته داخلی Xray و کانفیگ واقعی شما end-to-end آزمایش کند و در پایان خروجی آماده استفاده در کلاینت‌ها بسازد.
 
-نسخه **1.1.0** قابلیت واقعی **Anti-DPI** (تکه‌تکه کردن ClientHello در TLS با مقادیر قابل ویرایش) را به همه‌ی probeها و تست تونل اضافه می‌کند و ظاهر جدید سیاه / سفید / قرمز را به GUI دسکتاپ، اپ اندروید و رابط ترمینال می‌آورد، همراه با لوگو و بنر جدید.
+نسخه **1.1.1** همه‌ی قابلیت‌های دسکتاپ را به اپ اندروید می‌آورد (تنظیمات Anti-DPI، هدف دلخواه، حالت ملایم، رد کردن اسکن دسترسی و ادامه‌ی اسکن) و ظاهر سیاه / سفید / قرمز را هم دارد. نسخه **1.1.0** قابلیت واقعی **Anti-DPI** (تکه‌تکه کردن ClientHello در TLS با مقادیر قابل ویرایش) را به همه‌ی probeها و تست تونل اضافه می‌کند و ظاهر جدید سیاه / سفید / قرمز را به GUI دسکتاپ، اپ اندروید و رابط ترمینال می‌آورد، همراه با لوگو و بنر جدید.
 
 ## چرا کاربردی است؟
 
@@ -119,18 +119,18 @@ senpaiscanner help             # همه‌ی گزینه‌ها
 - **حالت ملایم** (*Scan profile ← Gentle* / `-gentle` / ردیف *Profile* در رابط ترمینال): حداکثر ۲۵ worker، timeout حداقل ۶ ثانیه و ۴۰ probe در ثانیه؛ برای ISPهایی که اسکن را شبیه حمله می‌بینند و اینترنت را قطع می‌کنند.
 - **ادامه‌ی اسکن**: هر اسکن پیشرفتش را (فهرست هدف‌ها، چیزهایی که تست شده، نتایج سالم و اعتبارسنجی‌های تمام‌شده) هر ۲۰ ثانیه و هنگام توقف در پوشه‌ی تنظیمات ذخیره می‌کند. بعد از کرش، قطع برق یا بستن پنجره، برنامه‌ی دسکتاپ دکمه‌ی *Resume scan* را نشان می‌دهد و در خط فرمان با `scan -resume` ادامه می‌دهی. اسکنی که کامل شود، فایل ذخیره‌اش را پاک می‌کند.
 
-## دانلود نسخه 1.1.0
+## دانلود نسخه 1.1.1
 
-فایل مناسب سیستم خود را از [GitHub Releases](https://github.com/MatinSenPai/SenPaiScanner/releases/latest) دریافت کنید. workflow نسخه `v1.1.0` همه رابط‌ها را با هم می‌سازد و فایل `SHA256SUMS.txt` را نیز منتشر می‌کند.
+فایل مناسب سیستم خود را از [GitHub Releases](https://github.com/MatinSenPai/SenPaiScanner/releases/latest) دریافت کنید. workflow نسخه `v1.1.1` همه رابط‌ها را با هم می‌سازد و فایل `SHA256SUMS.txt` را نیز منتشر می‌کند.
 
 ### GUI دسکتاپ
 
 | پلتفرم | فایل Release |
 |---|---|
-| Windows x64 | `SenPaiScanner-1.1.0-gui-windows-amd64.zip` |
-| Linux x64 | `SenPaiScanner-1.1.0-gui-linux-amd64.tar.gz` |
-| macOS Intel | `SenPaiScanner-1.1.0-gui-macos-intel.zip` |
-| macOS Apple Silicon | `SenPaiScanner-1.1.0-gui-macos-apple-silicon.zip` |
+| Windows x64 | `SenPaiScanner-1.1.1-gui-windows-amd64.zip` |
+| Linux x64 | `SenPaiScanner-1.1.1-gui-linux-amd64.tar.gz` |
+| macOS Intel | `SenPaiScanner-1.1.1-gui-macos-intel.zip` |
+| macOS Apple Silicon | `SenPaiScanner-1.1.1-gui-macos-apple-silicon.zip` |
 
 فایل اجرایی Windows و اپ Android از تصویر شفاف [`logo/logo.png`](logo/logo.png) استفاده می‌کنند.
 
@@ -138,28 +138,28 @@ senpaiscanner help             # همه‌ی گزینه‌ها
 
 | پلتفرم | فایل Release |
 |---|---|
-| Windows x64 | `SenPaiScanner-1.1.0-cli-windows-amd64.exe` |
-| Windows ARM64 | `SenPaiScanner-1.1.0-cli-windows-arm64.exe` |
-| Linux x64 | `SenPaiScanner-1.1.0-cli-linux-amd64` |
-| Linux ARM64 / Termux | `SenPaiScanner-1.1.0-cli-linux-arm64` |
-| Linux ARMv7 / ترموکس ۳۲ بیتی | `SenPaiScanner-1.1.0-cli-linux-armv7` |
-| macOS Intel | `SenPaiScanner-1.1.0-cli-macos-intel` |
-| macOS Apple Silicon | `SenPaiScanner-1.1.0-cli-macos-apple-silicon` |
+| Windows x64 | `SenPaiScanner-1.1.1-cli-windows-amd64.exe` |
+| Windows ARM64 | `SenPaiScanner-1.1.1-cli-windows-arm64.exe` |
+| Linux x64 | `SenPaiScanner-1.1.1-cli-linux-amd64` |
+| Linux ARM64 / Termux | `SenPaiScanner-1.1.1-cli-linux-arm64` |
+| Linux ARMv7 / ترموکس ۳۲ بیتی | `SenPaiScanner-1.1.1-cli-linux-armv7` |
+| macOS Intel | `SenPaiScanner-1.1.1-cli-macos-intel` |
+| macOS Apple Silicon | `SenPaiScanner-1.1.1-cli-macos-apple-silicon` |
 
 در Linux و macOS بعد از دانلود، فایل CLI را executable کنید:
 
 ```bash
-chmod +x SenPaiScanner-1.1.0-cli-*
-./SenPaiScanner-1.1.0-cli-linux-amd64
+chmod +x SenPaiScanner-1.1.1-cli-*
+./SenPaiScanner-1.1.1-cli-linux-amd64
 ```
 
 ### اندروید
 
 | فایل Release | دستگاه |
 |---|---|
-| `SenPaiScanner-1.1.0-android-universal.apk` | نسخه پیشنهادی برای sideload روی همه ABIهای پشتیبانی‌شده |
-| `SenPaiScanner-1.1.0-android-arm64-v8a.apk` | بیشتر گوشی‌های ۶۴ بیتی امروزی |
-| `SenPaiScanner-1.1.0-android-armeabi-v7a.apk` | دستگاه‌های قدیمی ۳۲ بیتی ARM |
+| `SenPaiScanner-1.1.1-android-universal.apk` | نسخه پیشنهادی برای sideload روی همه ABIهای پشتیبانی‌شده |
+| `SenPaiScanner-1.1.1-android-arm64-v8a.apk` | بیشتر گوشی‌های ۶۴ بیتی امروزی |
+| `SenPaiScanner-1.1.1-android-armeabi-v7a.apk` | دستگاه‌های قدیمی ۳۲ بیتی ARM |
 
 حداقل نسخه اندروید API 24 است. هنگام sideload ممکن است لازم باشد اجازه «Install unknown apps» را برای برنامه‌ای که APK را باز می‌کند فعال کنید.
 
@@ -194,7 +194,7 @@ senpaiscanner --version
 pkg update
 pkg install curl -y
 curl -fL -o "$PREFIX/bin/senpaiscanner" \
-  https://github.com/MatinSenPai/SenPaiScanner/releases/download/v1.1.0/SenPaiScanner-1.1.0-cli-linux-arm64
+  https://github.com/MatinSenPai/SenPaiScanner/releases/download/v1.1.1/SenPaiScanner-1.1.1-cli-linux-arm64
 chmod +x "$PREFIX/bin/senpaiscanner"
 senpaiscanner
 ```
@@ -221,7 +221,7 @@ go build -trimpath -o senpaiscanner ./cmd/senpaiscanner
 در Windows می‌توانید مجموعه versioned همه CLIها را بسازید:
 
 ```powershell
-./build.ps1 -Version 1.1.0
+./build.ps1 -Version 1.1.1
 ```
 
 ### ساخت GUI دسکتاپ
@@ -231,7 +231,7 @@ Wails را نصب و از پوشه `desktop` build بگیرید:
 ```powershell
 go install github.com/wailsapp/wails/v2/cmd/wails@v2.11.0
 cd desktop
-./build_gui.ps1 -Version 1.1.0
+./build_gui.ps1 -Version 1.1.1
 ```
 
 Linux به development packageهای GTK 3 و WebKitGTK 4.1 نیاز دارد. macOS نیز باید با toolchain بومی Xcode ساخته شود. GitHub Actions هر GUI را روی سیستم‌عامل مقصد build می‌کند.
@@ -271,9 +271,9 @@ build هر پلتفرم workflow مستقل دارد و در پایان همه �
 | [`build-cli.yml`](.github/workflows/build-cli.yml) | شش خروجی versioned برای CLI |
 | [`build-gui.yml`](.github/workflows/build-gui.yml) | بسته native برای Windows، Linux، macOS Intel و Apple Silicon |
 | [`build-android.yml`](.github/workflows/build-android.yml) | Go mobile bridge، تست و lint اندروید، APKهای ABI و APK universal |
-| [`release.yml`](.github/workflows/release.yml) | انتشار کامل **v1.1.0** و checksumهای SHA-256 |
+| [`release.yml`](.github/workflows/release.yml) | انتشار کامل **v1.1.1** و checksumهای SHA-256 |
 
-push کردن tag دقیق `v1.1.0` workflow نهایی انتشار را اجرا می‌کند.
+push کردن tag دقیق `v1.1.1` workflow نهایی انتشار را اجرا می‌کند.
 
 ## ساختار پروژه
 

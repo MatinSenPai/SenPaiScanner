@@ -1,15 +1,15 @@
-name: Release 1.1.0
+name: Release 1.1.1
 
 on:
   push:
     tags:
-      - "v1.1.0"
+      - "v1.1.1"
   workflow_dispatch:
     inputs:
       tag:
         description: Release tag to create (a manual run defaults to a pre-release tag)
         required: true
-        default: v1.1.0-pre1
+        default: v1.1.1-pre1
       prerelease:
         description: Mark the release as a pre-release
         type: boolean
@@ -22,17 +22,17 @@ jobs:
   cli:
     uses: ./.github/workflows/build-cli.yml
     with:
-      version: 1.1.0
+      version: 1.1.1
 
   gui:
     uses: ./.github/workflows/build-gui.yml
     with:
-      version: 1.1.0
+      version: 1.1.1
 
   android:
     uses: ./.github/workflows/build-android.yml
     with:
-      version: 1.1.0
+      version: 1.1.1
     secrets: inherit
 
   publish:
@@ -51,9 +51,9 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ inputs.tag || 'v1.1.0' }}
+          tag_name: ${{ inputs.tag || 'v1.1.1' }}
           target_commitish: ${{ github.sha }}
-          name: SenPai Scanner ${{ inputs.tag || 'v1.1.0' }}
+          name: SenPai Scanner ${{ inputs.tag || 'v1.1.1' }}
           prerelease: ${{ inputs.prerelease || false }}
           body_path: RELEASE_NOTES.md
           generate_release_notes: true

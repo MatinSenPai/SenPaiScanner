@@ -81,7 +81,7 @@ fun ExportScreen(uiState: ScanUiState, onGenerateExports: () -> Unit) {
                     enabled = greenText.isNotBlank(),
                     modifier = Modifier.fillMaxWidth(),
                     border = BorderStroke(1.dp, SignalBorder),
-                    shape = RoundedCornerShape(8.dp),
+                    shape = RoundedCornerShape(0.dp),
                 ) {
                     Icon(Icons.Outlined.Share, contentDescription = null)
                     Text("SHARE GREEN ENDPOINTS")
@@ -106,7 +106,7 @@ fun ExportScreen(uiState: ScanUiState, onGenerateExports: () -> Unit) {
                         disabledContainerColor = SignalBorder,
                         disabledContentColor = SignalMuted,
                     ),
-                    shape = RoundedCornerShape(8.dp),
+                    shape = RoundedCornerShape(0.dp),
                 ) {
                     Icon(Icons.Outlined.AutoAwesome, contentDescription = null)
                     Text("GENERATE CLIENT CONFIGS", fontWeight = FontWeight.Black)
@@ -159,7 +159,7 @@ private fun ExportOutputCard(
     onCopy: () -> Unit,
     onShare: () -> Unit,
 ) {
-    Surface(color = SignalPanel, shape = RoundedCornerShape(8.dp), border = BorderStroke(1.dp, SignalBorder)) {
+    Surface(color = SignalPanel, shape = RoundedCornerShape(0.dp), border = BorderStroke(1.dp, SignalBorder)) {
         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
             Row {
                 Column(Modifier.weight(1f)) {

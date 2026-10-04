@@ -23,7 +23,7 @@
 
 SenPai Scanner is a cross-platform Cloudflare endpoint scanner for unstable, filtered, or high-latency networks. It performs fast edge probing, can validate the best candidates through your real proxy configuration with an embedded Xray core, and turns the results into client-ready exports.
 
-Version **1.1.0** adds real **Anti-DPI** (TLS ClientHello fragmentation with editable values) to every probe and to tunnel validation, and a new black / white / red look across the desktop GUI, the Android app, and the terminal UI, with a new logo and banner.
+Version **1.1.1** brings every desktop feature to the Android app (Anti-DPI settings, pasted targets, Gentle profile, skip-reachability, resumable scans) and the new black / white / red look. Version **1.1.0** added real **Anti-DPI** (TLS ClientHello fragmentation with editable values) to every probe and to tunnel validation, and a new black / white / red look across the desktop GUI, the Android app, and the terminal UI, with a new logo and banner.
 
 ## What makes it useful
 
@@ -119,18 +119,18 @@ Progress is announced on a timer (`-progress 15s`) and only when it changed; hea
 - **Gentle mode** (*Scan profile → Gentle* / `-gentle` / the *Profile* row in the terminal UI): at most 25 workers, at least a 6 s timeout and 40 probes per second, for ISPs that cut the connection when a scan looks like a flood.
 - **Resume**: every scan saves its progress (target pool, what was probed, healthy results, finished validations) in your config folder every 20 seconds and when you stop it. After a crash, a power cut or a closed window the desktop app offers *Resume scan*; the CLI continues with `scan -resume`. A scan that finishes removes its saved state.
 
-## Download version 1.1.0
+## Download version 1.1.1
 
-Download the build for your platform from [GitHub Releases](https://github.com/MatinSenPai/SenPaiScanner/releases/latest). The `v1.1.0` release workflow builds and publishes every supported interface together and adds `SHA256SUMS.txt`.
+Download the build for your platform from [GitHub Releases](https://github.com/MatinSenPai/SenPaiScanner/releases/latest). The `v1.1.1` release workflow builds and publishes every supported interface together and adds `SHA256SUMS.txt`.
 
 ### Desktop GUI
 
 | Platform | Release asset |
 |---|---|
-| Windows x64 | `SenPaiScanner-1.1.0-gui-windows-amd64.zip` |
-| Linux x64 | `SenPaiScanner-1.1.0-gui-linux-amd64.tar.gz` |
-| macOS Intel | `SenPaiScanner-1.1.0-gui-macos-intel.zip` |
-| macOS Apple Silicon | `SenPaiScanner-1.1.0-gui-macos-apple-silicon.zip` |
+| Windows x64 | `SenPaiScanner-1.1.1-gui-windows-amd64.zip` |
+| Linux x64 | `SenPaiScanner-1.1.1-gui-linux-amd64.tar.gz` |
+| macOS Intel | `SenPaiScanner-1.1.1-gui-macos-intel.zip` |
+| macOS Apple Silicon | `SenPaiScanner-1.1.1-gui-macos-apple-silicon.zip` |
 
 The Windows executable and Android application use the artwork from [`logo/logo.png`](logo/logo.png) (regenerate all icons with `python gen_icons.py`).
 
@@ -138,28 +138,28 @@ The Windows executable and Android application use the artwork from [`logo/logo.
 
 | Platform | Release asset |
 |---|---|
-| Windows x64 | `SenPaiScanner-1.1.0-cli-windows-amd64.exe` |
-| Windows ARM64 | `SenPaiScanner-1.1.0-cli-windows-arm64.exe` |
-| Linux x64 | `SenPaiScanner-1.1.0-cli-linux-amd64` |
-| Linux ARM64 / Termux | `SenPaiScanner-1.1.0-cli-linux-arm64` |
-| Linux ARMv7 / 32-bit Termux | `SenPaiScanner-1.1.0-cli-linux-armv7` |
-| macOS Intel | `SenPaiScanner-1.1.0-cli-macos-intel` |
-| macOS Apple Silicon | `SenPaiScanner-1.1.0-cli-macos-apple-silicon` |
+| Windows x64 | `SenPaiScanner-1.1.1-cli-windows-amd64.exe` |
+| Windows ARM64 | `SenPaiScanner-1.1.1-cli-windows-arm64.exe` |
+| Linux x64 | `SenPaiScanner-1.1.1-cli-linux-amd64` |
+| Linux ARM64 / Termux | `SenPaiScanner-1.1.1-cli-linux-arm64` |
+| Linux ARMv7 / 32-bit Termux | `SenPaiScanner-1.1.1-cli-linux-armv7` |
+| macOS Intel | `SenPaiScanner-1.1.1-cli-macos-intel` |
+| macOS Apple Silicon | `SenPaiScanner-1.1.1-cli-macos-apple-silicon` |
 
 On Linux and macOS, make the downloaded CLI executable before running it:
 
 ```bash
-chmod +x SenPaiScanner-1.1.0-cli-*
-./SenPaiScanner-1.1.0-cli-linux-amd64
+chmod +x SenPaiScanner-1.1.1-cli-*
+./SenPaiScanner-1.1.1-cli-linux-amd64
 ```
 
 ### Android
 
 | Release asset | Device |
 |---|---|
-| `SenPaiScanner-1.1.0-android-universal.apk` | Recommended sideload build for all supported ABIs |
-| `SenPaiScanner-1.1.0-android-arm64-v8a.apk` | Most current 64-bit Android devices |
-| `SenPaiScanner-1.1.0-android-armeabi-v7a.apk` | Older 32-bit ARM devices |
+| `SenPaiScanner-1.1.1-android-universal.apk` | Recommended sideload build for all supported ABIs |
+| `SenPaiScanner-1.1.1-android-arm64-v8a.apk` | Most current 64-bit Android devices |
+| `SenPaiScanner-1.1.1-android-armeabi-v7a.apk` | Older 32-bit ARM devices |
 
 Android requires API 24 or newer. If you sideload an APK, Android may ask you to permit installation from the app that opened the file.
 
@@ -194,7 +194,7 @@ Use the Linux ARM64 CLI asset on modern phones:
 pkg update
 pkg install curl -y
 curl -fL -o "$PREFIX/bin/senpaiscanner" \
-  https://github.com/MatinSenPai/SenPaiScanner/releases/download/v1.1.0/SenPaiScanner-1.1.0-cli-linux-arm64
+  https://github.com/MatinSenPai/SenPaiScanner/releases/download/v1.1.1/SenPaiScanner-1.1.1-cli-linux-arm64
 chmod +x "$PREFIX/bin/senpaiscanner"
 senpaiscanner
 ```
@@ -221,7 +221,7 @@ go build -trimpath -o senpaiscanner ./cmd/senpaiscanner
 Windows can produce the versioned cross-platform CLI set with:
 
 ```powershell
-./build.ps1 -Version 1.1.0
+./build.ps1 -Version 1.1.1
 ```
 
 ### Build the desktop GUI
@@ -231,7 +231,7 @@ Install Wails, then build from the `desktop` directory:
 ```powershell
 go install github.com/wailsapp/wails/v2/cmd/wails@v2.11.0
 cd desktop
-./build_gui.ps1 -Version 1.1.0
+./build_gui.ps1 -Version 1.1.1
 ```
 
 Linux requires GTK 3 and WebKitGTK 4.1 development packages. macOS builds require the native Xcode toolchain. GitHub Actions builds each GUI on its target operating system rather than cross-compiling webviews.
@@ -271,9 +271,9 @@ The repository keeps platform builds separate and composes them in one final rel
 | [`build-cli.yml`](.github/workflows/build-cli.yml) | Six versioned CLI targets |
 | [`build-gui.yml`](.github/workflows/build-gui.yml) | Native Windows, Linux, Intel macOS, and Apple Silicon GUI packages |
 | [`build-android.yml`](.github/workflows/build-android.yml) | Go mobile bridge, Android tests/lint, signed ABI APKs, and universal APK |
-| [`release.yml`](.github/workflows/release.yml) | Publishes the complete **v1.1.0** release and SHA-256 checksums |
+| [`release.yml`](.github/workflows/release.yml) | Publishes the complete **v1.1.1** release and SHA-256 checksums |
 
-Pushing the exact tag `v1.1.0` starts the final release workflow.
+Pushing the exact tag `v1.1.1` starts the final release workflow.
 
 ## Repository map
 

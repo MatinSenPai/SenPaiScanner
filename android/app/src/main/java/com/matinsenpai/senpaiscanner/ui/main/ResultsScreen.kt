@@ -153,7 +153,7 @@ fun ResultsScreen(uiState: ScanUiState, onSpeedTest: () -> Unit) {
                     onClick = onSpeedTest,
                     enabled = !uiState.isRunning && green.isNotEmpty(),
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(8.dp),
+                    shape = RoundedCornerShape(0.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = SignalCyan,
                         contentColor = Color(0xFF031116),
@@ -204,7 +204,7 @@ fun ResultsScreen(uiState: ScanUiState, onSpeedTest: () -> Unit) {
 
 @Composable
 private fun Phase1ResultCard(result: IpResult, onCopy: () -> Unit) {
-    Surface(color = SignalPanel, shape = RoundedCornerShape(8.dp), border = BorderStroke(1.dp, SignalBorder)) {
+    Surface(color = SignalPanel, shape = RoundedCornerShape(0.dp), border = BorderStroke(1.dp, SignalBorder)) {
         Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Icon(Icons.Outlined.CheckCircle, contentDescription = "Healthy", tint = SignalGreen)
             Column(Modifier.weight(1f)) {
@@ -224,7 +224,7 @@ private fun Phase1ResultCard(result: IpResult, onCopy: () -> Unit) {
 @Composable
 private fun SpeedResultCard(result: IpResult, onCopy: () -> Unit) {
     val accent = if (result.phase2Status) SignalGreen else SignalDanger
-    Surface(color = SignalPanel, shape = RoundedCornerShape(8.dp), border = BorderStroke(1.dp, accent.copy(alpha = .55f))) {
+    Surface(color = SignalPanel, shape = RoundedCornerShape(0.dp), border = BorderStroke(1.dp, accent.copy(alpha = .55f))) {
         Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
             Row {
                 Text("${result.ip}:${result.port}", color = SignalText, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
@@ -252,7 +252,7 @@ private fun SectionLabel(text: String) {
 @Composable
 private fun EmptyResultPanel(text: String) {
     Column(
-        Modifier.fillMaxWidth().background(SignalPanelRaised, RoundedCornerShape(8.dp)).padding(20.dp),
+        Modifier.fillMaxWidth().background(SignalPanelRaised, RoundedCornerShape(0.dp)).padding(20.dp),
     ) {
         Text("LISTENING FOR SIGNAL", color = SignalCyan, fontWeight = FontWeight.Black)
         Text(text, color = SignalMuted, fontSize = 12.sp)

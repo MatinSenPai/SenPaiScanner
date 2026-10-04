@@ -46,6 +46,12 @@ type Params struct {
 	Phase2Only bool   `json:"phase2Only"` // skip reachability: test the targets directly
 	StatePath  string `json:"-"`          // where snapshots are written; empty disables them
 	Resume     bool   `json:"-"`          // continue the scan saved at StatePath
+
+	// Validate replaces xray validation (Android has its own) and Phase2Workers its parallelism; both optional.
+	Validate      ui.ValidateFunc `json:"-"`
+	Phase2Workers int             `json:"-"`
+	// NoLiveFile skips the SenPaiScannerResult-*.txt file (there is no sensible folder for it on Android).
+	NoLiveFile bool `json:"-"`
 }
 
 // Events receives what happens during a run. All methods may be called from different goroutines.
@@ -130,6 +136,7 @@ func Run(ctx context.Context, p Params, ev Events) Outcome {
 		}
 		sp := snap.Params
 		sp.StatePath, sp.Resume = p.StatePath, true
+		sp.Validate, sp.Phase2Workers, sp.NoLiveFile = p.Validate, p.Phase2Workers, p.NoLiveFile
 		r.p, p = sp, sp
 		configURL = strings.TrimSpace(p.ConfigURL)
 		for _, s := range snap.Pool {
@@ -169,7 +176,11 @@ func Run(ctx context.Context, p Params, ev Events) Outcome {
 		}
 	}
 
-	writer, livePath, _ := ui.NewLiveResultWriter(configURL != "")
+	var writer *ui.LiveResultWriter
+	var livePath string
+	if !p.NoLiveFile {
+		writer, livePath, _ = ui.NewLiveResultWriter(configURL != "")
+	}
 	stopSave := r.autosave()
 	defer stopSave()
 
@@ -178,6 +189,14 @@ func Run(ctx context.Context, p Params, ev Events) Outcome {
 	}
 
 	ev.Phase(1, livePath)
+	if p.Resume { // show what the earlier session already found, not only the counter
+		r.mu.Lock()
+		earlier := append([]*result.Result(nil), r.healthy...)
+		r.mu.Unlock()
+		if len(earlier) > 0 {
+			ev.Results(earlier)
+		}
+	}
 	total := len(r.pool) * len(r.ports)
 	var batchMu sync.Mutex
 	var pending []*result.Result
@@ -365,8 +384,8 @@ func (r *run) phase2(ctx context.Context, w *ui.LiveResultWriter, livePath, conf
 
 	if configURL != "" {
 		xrayTimeout := ui.Phase2Timeout(timeout, r.p.MinSpeed, r.p.SpeedSize)
-		err := ui.RunPhase2(ctx, configURL, todo, r.p.MinSpeed, r.p.SpeedURL, r.p.SpeedSize, xrayTimeout, r.p.UploadTest,
-			func(v *xraytest.ValidationResult, _, _ int) { record(v) })
+		err := ui.RunPhase2With(ctx, configURL, todo, r.p.MinSpeed, r.p.SpeedURL, r.p.SpeedSize, xrayTimeout, r.p.UploadTest,
+			r.p.Phase2Workers, r.p.Validate, func(v *xraytest.ValidationResult, _, _ int) { record(v) })
 		if err != nil {
 			r.ev.Error(err.Error())
 		}

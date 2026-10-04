@@ -5,6 +5,8 @@ import androidx.lifecycle.viewModelScope
 import com.matinsenpai.senpaiscanner.mobile.Callback
 import com.matinsenpai.senpaiscanner.mobile.Mobile
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -36,6 +38,41 @@ data class ScanConfig(
     val speedUrl: String = "",
     val speedSize: Long = 524_288,
     val uploadTest: Boolean = false,
+    // Gentle profile, pasted targets, skip-reachability and resume (same options as the desktop app)
+    val gentle: Boolean = false,
+    val targets: String = "",
+    val phase2Only: Boolean = false,
+    val resume: Boolean = false,
+    // Anti-DPI recipe; empty fields are filled with the published values when the app starts
+    val antiDpiEnabled: Boolean = true,
+    val adFinalmask: String = "",
+    val adFingerprint: String = "",
+    val adAlpn: String = "",
+    val adCiphers: String = "",
+)
+
+@Serializable
+data class ResumeInfo(
+    val saved: String = "",
+    val tested: Int = 0,
+    val total: Int = 0,
+    val healthy: Int = 0,
+    val phase: Int = 1,
+)
+
+@Serializable
+data class TargetPreview(
+    val count: Int = 0,
+    val domains: Int = 0,
+    val skipped: List<String> = emptyList(),
+)
+
+@Serializable
+data class AntiDpiProfile(
+    val finalmask: String = "",
+    val fingerprint: String = "",
+    val alpn: String = "",
+    val cipherSuites: String = "",
 )
 
 data class IpResult(
@@ -88,6 +125,10 @@ data class ScanUiState(
     val publicIp: String = "",
     val networkColo: String = "",
     val isMetaLoading: Boolean = false,
+    val resume: ResumeInfo? = null,
+    val notice: String? = null,
+    val targetsPreview: TargetPreview? = null,
+    val antiDpiError: String? = null,
 ) {
     val isRunning: Boolean get() = phase != SessionPhase.IDLE
     val greenResults: List<IpResult>
@@ -97,12 +138,17 @@ data class ScanUiState(
 }
 
 class MainViewModel : ViewModel() {
-    private val json = Json { ignoreUnknownKeys = true }
+    // encodeDefaults: fields left at their default (requireWebSocket, antiDpiEnabled, ...) must still reach the engine
+    private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+    private var previewJob: Job? = null
+    private var antiDpiJob: Job? = null
     private val _uiState = MutableStateFlow(ScanUiState())
     val uiState: StateFlow<ScanUiState> = _uiState.asStateFlow()
 
     init {
         fetchUserMeta()
+        refreshResume()
+        loadAntiDpiDefaults(onlyIfBlank = true)
     }
 
     private val scanCallback = object : Callback {
@@ -169,6 +215,11 @@ class MainViewModel : ViewModel() {
 
         override fun onFinished() {
             _uiState.update { it.copy(phase = SessionPhase.IDLE, phase1InFlight = 0) }
+            refreshResume()
+        }
+
+        override fun onInfo(msg: String) {
+            _uiState.update { it.copy(notice = msg) }
         }
 
         override fun onError(err: String) {
@@ -200,7 +251,7 @@ class MainViewModel : ViewModel() {
         }
     }
 
-    fun startScan() {
+    fun startScan(resume: Boolean = false) {
         val current = _uiState.value
         if (current.isRunning) return
         _uiState.value = current.copy(
@@ -216,8 +267,86 @@ class MainViewModel : ViewModel() {
             results = emptyList(),
             exportBundle = null,
             error = null,
+            notice = null,
+            resume = null,
         )
-        Mobile.startScan(json.encodeToString(current.config), scanCallback)
+        Mobile.startScan(json.encodeToString(current.config.copy(resume = resume)), scanCallback)
+    }
+
+    fun resumeScan() = startScan(resume = true)
+
+    /** Re-reads the saved-scan summary so the Scan tab can offer "Resume". */
+    fun refreshResume() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val payload = runCatching { Mobile.resumeInfo() }.getOrDefault("")
+            val info = if (payload.isBlank()) null else runCatching { json.decodeFromString<ResumeInfo>(payload) }.getOrNull()
+            _uiState.update { it.copy(resume = info) }
+        }
+    }
+
+    fun discardResume() {
+        viewModelScope.launch(Dispatchers.IO) {
+            Mobile.discardResume()
+            _uiState.update { it.copy(resume = null, notice = "The saved scan was discarded.") }
+        }
+    }
+
+    /** Updates the pasted targets and, after a short pause, asks the engine how many addresses they contain. */
+    fun onTargetsChanged(text: String) {
+        _uiState.update { it.copy(config = it.config.copy(targets = text), exportBundle = null) }
+        previewJob?.cancel()
+        if (text.isBlank()) {
+            _uiState.update { it.copy(targetsPreview = null) }
+            return
+        }
+        previewJob = viewModelScope.launch(Dispatchers.IO) {
+            delay(400)
+            val preview = runCatching { json.decodeFromString<TargetPreview>(Mobile.previewTargets(text)) }.getOrNull()
+            _uiState.update { it.copy(targetsPreview = preview) }
+        }
+    }
+
+    /** Anti-DPI recipe edits go through here so the recipe is validated while the user types. */
+    fun onAntiDpiChanged(config: ScanConfig) {
+        updateConfig(config)
+        antiDpiJob?.cancel()
+        antiDpiJob = viewModelScope.launch(Dispatchers.IO) {
+            delay(250)
+            val problem = runCatching { Mobile.validateAntiDpi(json.encodeToString(config)) }.getOrDefault("")
+            _uiState.update { it.copy(antiDpiError = problem.ifBlank { null }) }
+        }
+    }
+
+    fun restoreAntiDpiDefaults() = loadAntiDpiDefaults(onlyIfBlank = false)
+
+    private fun loadAntiDpiDefaults(onlyIfBlank: Boolean) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val profile = runCatching { json.decodeFromString<AntiDpiProfile>(Mobile.antiDpiDefaults()) }.getOrNull() ?: return@launch
+            _uiState.update { state ->
+                val c = state.config
+                val filled = if (onlyIfBlank) {
+                    c.copy(
+                        adFinalmask = c.adFinalmask.ifBlank { profile.finalmask },
+                        adFingerprint = c.adFingerprint.ifBlank { profile.fingerprint },
+                        adAlpn = c.adAlpn.ifBlank { profile.alpn },
+                        adCiphers = c.adCiphers.ifBlank { profile.cipherSuites },
+                    )
+                } else {
+                    c.copy(
+                        antiDpiEnabled = true,
+                        adFinalmask = profile.finalmask,
+                        adFingerprint = profile.fingerprint,
+                        adAlpn = profile.alpn,
+                        adCiphers = profile.cipherSuites,
+                    )
+                }
+                state.copy(
+                    config = filled,
+                    antiDpiError = null,
+                    notice = if (onlyIfBlank) state.notice else "Suggested Anti-DPI values restored.",
+                )
+            }
+        }
     }
 
     fun stop() {
@@ -269,6 +398,10 @@ class MainViewModel : ViewModel() {
 
     fun dismissError() {
         _uiState.update { it.copy(error = null) }
+    }
+
+    fun dismissNotice() {
+        _uiState.update { it.copy(notice = null) }
     }
 }
 

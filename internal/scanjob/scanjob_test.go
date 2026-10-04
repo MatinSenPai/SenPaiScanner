@@ -5,10 +5,12 @@ import (
 	"net"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/matinsenpai/senpaiscanner/internal/result"
+	"github.com/matinsenpai/senpaiscanner/internal/xraytest"
 )
 
 func ipset(t Targets) map[string]bool {
@@ -140,5 +142,44 @@ func TestGentleCapsWorkersAndTimeout(t *testing.T) {
 	_, to, _ = Params{TimeoutMs: 9000, Gentle: true}.timing()
 	if to != 9*time.Second {
 		t.Errorf("gentle must never shorten a longer timeout, got %v", to)
+	}
+}
+
+type recEvents struct {
+	mu      sync.Mutex
+	results []*result.Result
+	infos   []string
+}
+
+func (r *recEvents) Phase(int, string)                             {}
+func (r *recEvents) Stats(int, int, int)                           {}
+func (r *recEvents) Validate(*xraytest.ValidationResult, int, int) {}
+func (r *recEvents) Error(string)                                  {}
+func (r *recEvents) Info(m string)                                 { r.mu.Lock(); r.infos = append(r.infos, m); r.mu.Unlock() }
+func (r *recEvents) Results(b []*result.Result) {
+	r.mu.Lock()
+	r.results = append(r.results, b...)
+	r.mu.Unlock()
+}
+
+// Resuming must show the healthy rows the earlier session found, not only count them.
+func TestResumeReplaysEarlierHealthyRows(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	healthy := &result.Result{IP: net.ParseIP("104.18.1.1"), Port: 443, ProbeMode: "http", TLSOk: true, HTTPStatus: 200, Colo: "FRA",
+		Latencies: []time.Duration{100 * time.Millisecond, 120 * time.Millisecond}}
+	r := &run{p: Params{StatePath: path, NoLiveFile: true}, ports: []int{443}, phase: 1, done: map[string]bool{"104.18.1.1:443": true},
+		pool: []net.IP{net.ParseIP("104.18.1.1")}, probed: 1, healthy: []*result.Result{healthy}}
+	r.save()
+
+	ev := &recEvents{}
+	out := Run(context.Background(), Params{StatePath: path, Resume: true, NoLiveFile: true}, ev)
+	if len(ev.results) != 1 || ev.results[0].IP.String() != "104.18.1.1" || ev.results[0].Colo != "FRA" {
+		t.Fatalf("earlier healthy row was not replayed: %+v", ev.results)
+	}
+	if out.Healthy != 1 || out.Cancelled {
+		t.Errorf("outcome = %+v", out)
+	}
+	if _, still := InspectSnapshot(path); still {
+		t.Error("a finished resume must remove the snapshot")
 	}
 }

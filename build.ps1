@@ -1,10 +1,10 @@
 #!/usr/bin/env pwsh
 # Cross-compile SenPaiScanner for all supported platforms.
 # Usage:  .\build.ps1
-#         .\build.ps1 -Version "1.1.0"
+#         .\build.ps1 -Version "1.1.1"
 
 param(
-    [string]$Version = "1.1.0"
+    [string]$Version = "1.1.1"
 )
 
 # Use Continue so that go's informational stderr lines don't abort the script.

@@ -38,7 +38,7 @@ import com.matinsenpai.senpaiscanner.theme.SignalPanel
 import com.matinsenpai.senpaiscanner.theme.SignalPanelRaised
 import com.matinsenpai.senpaiscanner.theme.SignalText
 
-private val panelShape = RoundedCornerShape(10.dp)
+private val panelShape = RoundedCornerShape(0.dp)
 
 @Composable
 fun DeskPanel(
@@ -84,7 +84,7 @@ fun ToggleSetting(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(SignalPanelRaised, RoundedCornerShape(8.dp))
+            .background(SignalPanelRaised, RoundedCornerShape(0.dp))
             .clickable(role = Role.Switch) { onCheckedChange(!checked) }
             .padding(horizontal = 12.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -149,7 +149,7 @@ fun RowScope.DeskAction(
         modifier = Modifier.weight(1f),
         border = BorderStroke(1.dp, if (enabled) accent else SignalBorder),
         colors = ButtonDefaults.outlinedButtonColors(contentColor = accent, disabledContentColor = SignalMuted),
-        shape = RoundedCornerShape(8.dp),
+        shape = RoundedCornerShape(0.dp),
     ) {
         Text(label, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
     }
