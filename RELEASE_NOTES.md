@@ -1,5 +1,13 @@
 # SenPai Scanner — Release Notes
 
+## v1.1.1
+
+- **Android now has every desktop feature**: Anti-DPI settings (editable recipe, validation, *Suggested values*), *IP source: Paste list* with a live address count, *Skip the reachability scan*, the *Fast / Gentle* scan profile, and *Resume scan* after an interruption. The new black / white / red look with square corners is applied too
+- The Android engine now runs on the same shared scan runner as the desktop app and the plain text mode, so scans, targets, Gentle, Anti-DPI and resume behave identically on all platforms
+- Fix: resuming a scan counted the healthy addresses found earlier but did not show them in the results list (desktop and Android)
+- Fix: the Android app did not send options left at their default (WebSocket requirement, Anti-DPI on), so they could be silently off
+- Tested on an Android 16 emulator: pasted targets, direct speed test, Gentle scan, Stop, saved state, Resume
+
 ## v1.1.0
 
 - **Anti-DPI**: the TLS ClientHello of every probe (and of the xray tunnel validation) can be cut into small pieces so DPI cannot match the SNI. Defaults are the published values from t.me/MatinSenPaii/5469 (`tlshello` 0/104/1 + first-packet 114/1, delay 1 ms, maxSplit 11, fingerprint `unsafe`, ALPN `http/1.1`); every field is editable in the desktop app, with a "Suggested values" button

@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -27,8 +28,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.matinsenpai.senpaiscanner.theme.SignalBorder
 import com.matinsenpai.senpaiscanner.theme.SignalCyan
+import com.matinsenpai.senpaiscanner.theme.SignalDanger
 import com.matinsenpai.senpaiscanner.theme.SignalMuted
 import com.matinsenpai.senpaiscanner.theme.SignalPanelRaised
 import com.matinsenpai.senpaiscanner.theme.SignalText
@@ -42,19 +45,93 @@ fun ScanScreen(
     running: Boolean,
     onConfigChange: (ScanConfig) -> Unit,
     onStart: () -> Unit,
+    resume: ResumeInfo? = null,
+    targetsPreview: TargetPreview? = null,
+    antiDpiError: String? = null,
+    onResume: () -> Unit = {},
+    onDiscardResume: () -> Unit = {},
+    onTargetsChange: (String) -> Unit = {},
+    onAntiDpiChange: (ScanConfig) -> Unit = onConfigChange,
+    onAntiDpiDefaults: () -> Unit = {},
 ) {
+    val pasteMode = config.sourceType == "Paste"
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(14.dp, 14.dp, 14.dp, 28.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        if (resume != null && !running) {
+            item {
+                DeskPanel("RESUME", "An interrupted scan was saved") {
+                    val where = if (resume.phase == 2) {
+                        "Reachability finished with ${resume.healthy} healthy addresses; the speed tests continue."
+                    } else {
+                        "${resume.tested} of ${resume.total} tested, ${resume.healthy} healthy."
+                    }
+                    Text(where, color = SignalMuted, fontSize = 12.sp)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        DeskAction("RESUME SCAN", onResume)
+                        DeskAction("DISCARD", onDiscardResume, accent = SignalMuted)
+                    }
+                }
+            }
+        }
+
         item {
             DeskPanel("01 / ESSENTIALS", "Choose the scan envelope") {
-                FieldLabel("IP count")
+                FieldLabel("IP source")
                 ChoiceChips(
-                    choices = listOf("1K" to "1000", "5K" to "5000", "20K" to "20000"),
-                    selected = config.countType,
-                    onSelected = { onConfigChange(config.copy(countType = it, customCount = "")) },
+                    choices = listOf("Random pool" to "Random", "Paste list" to "Paste"),
+                    selected = if (pasteMode) "Paste" else "Random",
+                    onSelected = { onConfigChange(config.copy(sourceType = it)) },
+                )
+                if (pasteMode) {
+                    DeskTextField(
+                        value = config.targets,
+                        onValueChange = onTargetsChange,
+                        label = "Your addresses",
+                        placeholder = "IPs, CIDRs, ranges (1.2.3.4-1.2.3.40) and domains",
+                        minLines = 4,
+                    )
+                    val preview = targetsPreview
+                    if (preview != null) {
+                        val skipped = preview.skipped.size
+                        val text = buildString {
+                            append("${preview.count} addresses found")
+                            if (preview.domains > 0) append(", ${preview.domains} domain(s) resolved")
+                            if (skipped > 0) append(", $skipped skipped (${preview.skipped.first()})")
+                        }
+                        Text(text, color = if (preview.count == 0) SignalDanger else SignalMuted, fontSize = 12.sp)
+                    }
+                    ToggleSetting(
+                        title = "Skip the reachability scan",
+                        supporting = "Test these addresses directly: tunnel speed test with your config, or a direct download sample without one.",
+                        checked = config.phase2Only,
+                        onCheckedChange = { onConfigChange(config.copy(phase2Only = it)) },
+                    )
+                } else {
+                    FieldLabel("IP count")
+                    ChoiceChips(
+                        choices = listOf("1K" to "1000", "5K" to "5000", "20K" to "20000"),
+                        selected = config.countType,
+                        onSelected = { onConfigChange(config.copy(countType = it, customCount = "")) },
+                    )
+                }
+
+                FieldLabel("Scan profile")
+                ChoiceChips(
+                    choices = listOf("Fast" to false, "Gentle" to true),
+                    selected = config.gentle,
+                    onSelected = { onConfigChange(config.copy(gentle = it)) },
+                )
+                Text(
+                    if (config.gentle) {
+                        "Gentle: at most 25 workers, 6 s timeout and 40 probes per second, so the ISP does not cut your connection."
+                    } else {
+                        "Full speed. Use Gentle if your connection drops while scanning."
+                    },
+                    color = SignalMuted,
+                    fontSize = 11.sp,
                 )
 
                 FieldLabel("Parallel workers")
@@ -116,7 +193,53 @@ fun ScanScreen(
         }
 
         item {
-            DeskPanel("02 / TUNNEL", "Optional proxy validation") {
+            DeskPanel("02 / ANTI-DPI", "Fragment the TLS handshake") {
+                ToggleSetting(
+                    title = "Anti-DPI",
+                    supporting = "Sends the ClientHello in small pieces so DPI cannot match the SNI. Applies to every probe and to the tunnel test.",
+                    checked = config.antiDpiEnabled,
+                    onCheckedChange = { onAntiDpiChange(config.copy(antiDpiEnabled = it)) },
+                )
+                if (config.antiDpiEnabled) {
+                    DeskTextField(
+                        value = config.adFinalmask,
+                        onValueChange = { onAntiDpiChange(config.copy(adFinalmask = it)) },
+                        label = "Finalmask (fragment)",
+                        minLines = 4,
+                    )
+                    if (antiDpiError != null) {
+                        Text(antiDpiError, color = SignalDanger, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                    DeskTextField(
+                        value = config.adFingerprint,
+                        onValueChange = { onAntiDpiChange(config.copy(adFingerprint = it)) },
+                        label = "Fingerprint",
+                    )
+                    DeskTextField(
+                        value = config.adAlpn,
+                        onValueChange = { onAntiDpiChange(config.copy(adAlpn = it)) },
+                        label = "ALPN",
+                    )
+                    DeskTextField(
+                        value = config.adCiphers,
+                        onValueChange = { onAntiDpiChange(config.copy(adCiphers = it)) },
+                        label = "Cipher suites",
+                        minLines = 3,
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        DeskAction("SUGGESTED VALUES", onAntiDpiDefaults)
+                    }
+                    Text(
+                        "Values from t.me/MatinSenPaii/5469. They change from time to time, so every field is editable. Only fragment masks are supported.",
+                        color = SignalMuted,
+                        fontSize = 11.sp,
+                    )
+                }
+            }
+        }
+
+        item {
+            DeskPanel("03 / TUNNEL", "Optional proxy validation") {
                 DeskTextField(
                     value = config.configUrl,
                     onValueChange = { onConfigChange(config.copy(configUrl = it.trim())) },
@@ -161,7 +284,7 @@ fun ScanScreen(
                 onClick = onStart,
                 enabled = !running,
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(8.dp),
+                shape = RoundedCornerShape(0.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = SignalCyan,
                     contentColor = Color(0xFF031116),

@@ -166,6 +166,20 @@ func phase2TimeoutBudget(timeout time.Duration, minSpeed float64, speedSize int6
 // speed URL/size/upload settings applied per candidate. onResult is called
 // once per validated endpoint.
 func RunPhase2(ctx context.Context, rawURL string, topIPs []*result.Result, minSpeed float64, speedURL string, speedSize int64, timeout time.Duration, uploadTest bool, onResult func(*xraytest.ValidationResult, int, int)) error {
+	return RunPhase2With(ctx, rawURL, topIPs, minSpeed, speedURL, speedSize, timeout, uploadTest, phase2WorkersCount, xraytest.ValidateConfig, onResult)
+}
+
+// ValidateFunc validates one swapped config through xray. Android passes its own (no temp files, no stdout redirect).
+type ValidateFunc func(ctx context.Context, cfg *xraytest.VLESSConfig, timeout time.Duration) *xraytest.ValidationResult
+
+// RunPhase2With is RunPhase2 with a custom validator and worker count (workers <= 0 means the default).
+func RunPhase2With(ctx context.Context, rawURL string, topIPs []*result.Result, minSpeed float64, speedURL string, speedSize int64, timeout time.Duration, uploadTest bool, workers int, validate ValidateFunc, onResult func(*xraytest.ValidationResult, int, int)) error {
+	if workers <= 0 {
+		workers = phase2WorkersCount
+	}
+	if validate == nil {
+		validate = xraytest.ValidateConfig
+	}
 	cfg, err := xraytest.ParseProxyURL(rawURL)
 	if err != nil {
 		return fmt.Errorf("invalid config URL: %w", err)
@@ -187,7 +201,7 @@ func RunPhase2(ctx context.Context, rawURL string, topIPs []*result.Result, minS
 		return nil
 	}
 
-	sem := make(chan struct{}, phase2WorkersCount)
+	sem := make(chan struct{}, workers)
 	var wg sync.WaitGroup
 	var done atomicInt32
 
@@ -204,7 +218,7 @@ func RunPhase2(ctx context.Context, rawURL string, topIPs []*result.Result, minS
 			swapped.SpeedURL = speedURL
 			swapped.SpeedSize = speedSize
 			swapped.UploadTest = uploadTest
-			vr := xraytest.ValidateConfig(ctx, swapped, timeout)
+			vr := validate(ctx, swapped, timeout)
 			if vr.Success && minSpeed > 0 {
 				mbps := vr.Throughput * 8 / 1_000_000
 				if mbps < minSpeed {

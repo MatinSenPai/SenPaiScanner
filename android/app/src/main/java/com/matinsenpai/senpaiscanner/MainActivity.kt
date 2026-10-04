@@ -14,6 +14,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // where the engine keeps the resumable scan state
+        com.matinsenpai.senpaiscanner.mobile.Mobile.setDataDir(filesDir.absolutePath)
+
         enableEdgeToEdge()
         setContent {
             SenPaiScannerTheme {
