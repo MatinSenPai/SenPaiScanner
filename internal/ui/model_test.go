@@ -260,9 +260,9 @@ func TestLoadIPsSubnets(t *testing.T) {
 	lines := []string{
 		"# Comment line",
 		"10.0.0.1",       // IPv4 plain
-		"2001:db8::1",    // IPv6 plain (should be ignored)
+		"2001:db8::1",    // IPv6 plain
 		"10.0.0.8/30",    // IPv4 small subnet (4 IPs: 10.0.0.8, 10.0.0.9, 10.0.0.10, 10.0.0.11)
-		"2001:db8::/120", // IPv6 subnet (should be ignored)
+		"2001:db8::/120", // IPv6 subnet (256 addresses)
 		"192.168.0.0/16", // IPv4 large subnet (> 256 IPs, should sample exactly 256 IPs)
 		"invalid-line",   // Should be ignored
 		"10.0.0.0/99",    // Invalid CIDR (should return error)
@@ -290,11 +290,23 @@ func TestLoadIPsSubnets(t *testing.T) {
 		t.Error("expected to find 10.0.0.1 in loaded IPs")
 	}
 
-	// Verify IPv6 is completely ignored
+	// Verify the plain IPv6 address and small IPv6 subnet are loaded.
+	foundIPv6 := false
+	ipv6SubnetCount := 0
+	_, ipv6Subnet, _ := net.ParseCIDR("2001:db8::/120")
 	for _, ip := range ips {
-		if ip.To4() == nil {
-			t.Errorf("found IPv6 address %s, but IPv6 is not supported", ip.String())
+		if ip.String() == "2001:db8::1" {
+			foundIPv6 = true
 		}
+		if ipv6Subnet.Contains(ip) {
+			ipv6SubnetCount++
+		}
+	}
+	if !foundIPv6 {
+		t.Error("expected to find 2001:db8::1")
+	}
+	if ipv6SubnetCount != 256 {
+		t.Errorf("expected 256 expanded IPv6 subnet addresses, got %d", ipv6SubnetCount)
 	}
 
 	// Verify 10.0.0.8/30 subnet was fully expanded (4 IPs)

@@ -114,7 +114,7 @@ Progress is announced on a timer (`-progress 15s`) and only when it changed; hea
 
 ### Your own targets, Gentle mode, and resuming
 
-- **Paste your own list** (desktop: *IP source → Paste list*; CLI: `-targets` / `-targets-file`): IPs, CIDRs, ranges (`1.2.3.4-1.2.3.40`) and domain names, which are resolved to their addresses. Bad entries are reported, not silently dropped.
+- **Paste your own list** (desktop: *IP source → Paste list*; CLI: `-targets` / `-targets-file`): IPv4 and IPv6 addresses, CIDRs, IPv4 ranges (`1.2.3.4-1.2.3.40`) and domain names, which are resolved to their addresses. Small CIDRs are expanded; larger ones are sampled. Bad entries are reported, not silently dropped.
 - **Skip the reachability scan** (*Skip the reachability scan* / `-phase2-only`): test your list directly, through your config if you gave one, or with a direct download sample if not.
 - **Gentle mode** (*Scan profile → Gentle* / `-gentle` / the *Profile* row in the terminal UI): at most 25 workers, at least a 6 s timeout and 40 probes per second, for ISPs that cut the connection when a scan looks like a flood.
 - **Resume**: every scan saves its progress (target pool, what was probed, healthy results, finished validations) in your config folder every 20 seconds and when you stop it. After a crash, a power cut or a closed window the desktop app offers *Resume scan*; the CLI continues with `scan -resume`. A scan that finishes removes its saved state.
@@ -184,7 +184,7 @@ senpaiscanner --version
 
 Navigate with the arrow keys or `h` / `j` / `k` / `l`, confirm with `Enter`, go back with `Esc`, and stop an active scan with `q`. The TUI remembers the last scan configuration and exposes it through **Retry Last Scan**.
 
-For file mode, place `ips.txt` next to the executable or in the current working directory. Accepted lines include a plain IPv4 address, the first field of a CSV line, or a CIDR. Blank lines and lines beginning with `#` are ignored.
+For file mode, place `ips.txt` next to the executable or in the current working directory. Accepted lines include a plain IPv4 or IPv6 address, the first field of a CSV line, or an IPv4 or IPv6 CIDR. Blank lines and lines beginning with `#` are ignored.
 
 ### Termux
 

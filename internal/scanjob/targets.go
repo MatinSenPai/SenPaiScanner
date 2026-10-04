@@ -123,7 +123,7 @@ func fromCIDR(s string) ([]net.IP, error) {
 	}
 	base := n.IP.To4()
 	if base == nil {
-		return nil, fmt.Errorf("IPv6 ranges are not expanded")
+		return sampleIPv6CIDR(n), nil
 	}
 	ones, bits := n.Mask.Size()
 	size := uint64(1) << uint(bits-ones)
@@ -144,6 +144,38 @@ func fromCIDR(s string) ([]net.IP, error) {
 		out = append(out, pick(uint64(i)))
 	}
 	return out, nil
+}
+
+// sampleIPv6CIDR expands small IPv6 subnets and samples larger ones. IPv6
+// pools are too large to enumerate in practice, so cap them at cidrSample
+// candidates just like large IPv4 CIDRs.
+func sampleIPv6CIDR(n *net.IPNet) []net.IP {
+	ones, bits := n.Mask.Size()
+	hostBits := bits - ones
+	if hostBits <= 8 {
+		var out []net.IP
+		for ip := cloneIP(n.IP); n.Contains(ip); incrementIP(ip) {
+			out = append(out, cloneIP(ip))
+		}
+		return out
+	}
+
+	out := make([]net.IP, 0, cidrSample)
+	seen := make(map[string]struct{}, cidrSample)
+	for attempts := 0; len(out) < cidrSample && attempts < cidrSample*40; attempts++ {
+		ip := cloneIP(n.IP)
+		for i := range ip {
+			hostMask := ^n.Mask[i]
+			ip[i] |= byte(rand.Intn(256)) & hostMask
+		}
+		key := ip.String()
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, ip)
+	}
+	return out
 }
 
 // fromRange handles "1.2.3.4-1.2.3.40" and the short form "1.2.3.4-40" (last octet).

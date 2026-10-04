@@ -652,15 +652,11 @@ func loadIPs(path string) ([]net.IP, error) {
 		field := strings.SplitN(line, ",", 2)[0]
 		field = strings.TrimSpace(field)
 		if ip := net.ParseIP(field); ip != nil {
-			if ip.To4() != nil {
-				ips = append(ips, ip)
-			}
+			ips = append(ips, ip)
 		} else if strings.Contains(field, "/") {
 			_, ipNet, err := net.ParseCIDR(field)
 			if err == nil {
-				if ipNet.IP.To4() != nil {
-					ips = append(ips, sampleFromSubnet(ipNet, 256)...)
-				}
+				ips = append(ips, sampleFromSubnet(ipNet, 256)...)
 			} else {
 				return nil, fmt.Errorf("invalid CIDR %q: %w", field, err)
 			}
@@ -682,7 +678,33 @@ func loadIPs(path string) ([]net.IP, error) {
 func sampleFromSubnet(ipNet *net.IPNet, count int) []net.IP {
 	ip4 := ipNet.IP.To4()
 	if ip4 == nil {
-		return nil
+		ones, bits := ipNet.Mask.Size()
+		if ones < 0 {
+			return nil
+		}
+		hostBits := bits - ones
+		if hostBits <= 8 {
+			var ips []net.IP
+			for ip := cloneIP(ipNet.IP); ipNet.Contains(ip); incrementIP(ip) {
+				ips = append(ips, cloneIP(ip))
+			}
+			return ips
+		}
+		rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+		seen := make(map[string]struct{}, count)
+		ips := make([]net.IP, 0, count)
+		for attempts := 0; len(ips) < count && attempts < count*40; attempts++ {
+			ip := cloneIP(ipNet.IP)
+			for i := range ip {
+				ip[i] |= byte(rng.Intn(256)) &^ ipNet.Mask[i]
+			}
+			if _, ok := seen[ip.String()]; ok {
+				continue
+			}
+			seen[ip.String()] = struct{}{}
+			ips = append(ips, ip)
+		}
+		return ips
 	}
 
 	ones, bits := ipNet.Mask.Size()
