@@ -1123,7 +1123,11 @@ func formatEndpoint(ip string, port int) string {
 	if port <= 0 {
 		return ip
 	}
-	return fmt.Sprintf("%s:%d", ip, port)
+	clean := strings.Trim(ip, "[]")
+	if strings.Contains(clean, ":") {
+		return fmt.Sprintf("[%s]:%d", clean, port)
+	}
+	return fmt.Sprintf("%s:%d", clean, port)
 }
 
 func formatValidationSpeed(throughput float64) string {

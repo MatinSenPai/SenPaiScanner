@@ -236,8 +236,9 @@ func TestWorkingEndpointsIncludePorts(t *testing.T) {
 		{IP: "104.18.1.1", Port: 443, Success: true},
 		{IP: "104.18.1.1", Port: 8443, Success: true},
 		{IP: "104.18.1.2", Port: 443, Success: false},
+		{IP: "2606:4700::1", Port: 443, Success: true},
 	})
-	want := []string{"104.18.1.1:443", "104.18.1.1:8443"}
+	want := []string{"104.18.1.1:443", "104.18.1.1:8443", "[2606:4700::1]:443"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("working endpoints = %v, want %v", got, want)
 	}

@@ -140,8 +140,20 @@ func fromCIDR(s string) ([]net.IP, error) {
 		}
 		return out, nil
 	}
-	for _, i := range rand.Perm(int(min(size, 1<<20)))[:cidrSample] { // ponytail: samples the first 1M addresses of a huge CIDR
-		out = append(out, pick(uint64(i)))
+	out = make([]net.IP, 0, cidrSample)
+	seen := make(map[uint64]struct{}, cidrSample)
+	for attempts := 0; len(out) < cidrSample && attempts < cidrSample*40; attempts++ {
+		var idx uint64
+		if size <= (1 << 31) {
+			idx = uint64(rand.Int63n(int64(size)))
+		} else {
+			idx = rand.Uint64() % size
+		}
+		if _, ok := seen[idx]; ok {
+			continue
+		}
+		seen[idx] = struct{}{}
+		out = append(out, pick(idx))
 	}
 	return out, nil
 }
@@ -166,7 +178,7 @@ func fromRange(s string) ([]net.IP, error) {
 	if to < from {
 		return nil, fmt.Errorf("range end is before its start")
 	}
-	if to-from+1 > rangeMax {
+	if uint64(to)-uint64(from)+1 > uint64(rangeMax) {
 		return nil, fmt.Errorf("range has more than %d addresses", rangeMax)
 	}
 	var out []net.IP
