@@ -75,6 +75,16 @@ func TestParseTargetsRangeLimitAndDomains(t *testing.T) {
 	}
 }
 
+func TestParseTargetsHugeRangeOverflow(t *testing.T) {
+	got := ParseTargets(context.Background(), "0.0.0.0-255.255.255.255")
+	if len(got.IPs) != 0 {
+		t.Fatalf("expected 0 IPs from huge range, got %d", len(got.IPs))
+	}
+	if len(got.Skipped) != 1 || !strings.Contains(got.Skipped[0], "more than") {
+		t.Fatalf("expected range to be rejected with 'more than' message, got %v", got.Skipped)
+	}
+}
+
 func TestSnapshotRoundTripAndResumeSkipsDoneWork(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.json")
 	healthy := &result.Result{IP: net.ParseIP("104.18.1.1"), Port: 443, ProbeMode: "http", TLSOk: true, HTTPStatus: 200, Colo: "FRA",

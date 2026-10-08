@@ -3,6 +3,7 @@ package export
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"strings"
 
 	"github.com/matinsenpai/senpaiscanner/internal/xraytest"
@@ -55,7 +56,7 @@ func Generate(template *xraytest.VLESSConfig, endpoints []Endpoint) (*Bundle, er
 	return b, nil
 }
 
-// ParseEndpoints converts "ip:port" strings into Endpoint values.
+// ParseEndpoints converts "ip:port", "[ipv6]:port", or plain IP strings into Endpoint values.
 func ParseEndpoints(raw []string) []Endpoint {
 	var eps []Endpoint
 	for _, r := range raw {
@@ -63,11 +64,22 @@ func ParseEndpoints(raw []string) []Endpoint {
 		if r == "" {
 			continue
 		}
-		ip := r
-		port := 0
-		if i := strings.LastIndex(r, ":"); i != -1 {
-			ip = r[:i]
-			fmt.Sscanf(r[i+1:], "%d", &port)
+		var ip string
+		var port int
+		if h, p, err := net.SplitHostPort(r); err == nil {
+			ip = strings.Trim(h, "[]")
+			fmt.Sscanf(p, "%d", &port)
+		} else {
+			if parsedIP := net.ParseIP(r); parsedIP != nil {
+				ip = parsedIP.String()
+			} else if strings.HasPrefix(r, "[") && strings.HasSuffix(r, "]") {
+				ip = strings.Trim(r, "[]")
+			} else if i := strings.LastIndex(r, ":"); i != -1 && strings.Count(r, ":") == 1 {
+				ip = r[:i]
+				fmt.Sscanf(r[i+1:], "%d", &port)
+			} else {
+				ip = strings.Trim(r, "[]")
+			}
 		}
 		if ip == "" {
 			continue

@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/url"
 	"strconv"
 	"strings"
@@ -316,7 +317,7 @@ func (c *VLESSConfig) ToShareURL() string {
 		vj := VMessJSON{
 			V:    "2",
 			Ps:   c.Remark,
-			Add:  c.Address,
+			Add:  strings.Trim(c.Address, "[]"),
 			Port: c.Port,
 			Id:   c.UUID,
 			Aid:  0,
@@ -379,10 +380,11 @@ func (c *VLESSConfig) ToShareURL() string {
 	}
 
 	remark := url.QueryEscape(c.Remark)
+	hostPort := net.JoinHostPort(strings.Trim(c.Address, "[]"), strconv.Itoa(c.Port))
 	if c.Protocol == "trojan" {
-		return fmt.Sprintf("trojan://%s@%s:%d?%s#%s", c.Password, c.Address, c.Port, params.Encode(), remark)
+		return fmt.Sprintf("trojan://%s@%s?%s#%s", c.Password, hostPort, params.Encode(), remark)
 	}
-	return fmt.Sprintf("vless://%s@%s:%d?%s#%s", c.UUID, c.Address, c.Port, params.Encode(), remark)
+	return fmt.Sprintf("vless://%s@%s?%s#%s", c.UUID, hostPort, params.Encode(), remark)
 }
 
 func splitHostPort(hostPort string) (string, string, error) {

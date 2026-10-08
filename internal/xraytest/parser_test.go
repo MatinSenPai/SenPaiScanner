@@ -181,6 +181,56 @@ func TestParseVMess_WS(t *testing.T) {
 	assertEqual(t, "Remark", cfg.Remark, "CF-VMess-Test")
 }
 
+func TestToShareURL_IPv6(t *testing.T) {
+	vless := &VLESSConfig{
+		Protocol:    "vless",
+		UUID:        "12345678-1234-1234-1234-123456789abc",
+		Address:     "2606:4700::1",
+		Port:        443,
+		Encryption:  "none",
+		Network:     "ws",
+		Path:        "/ws",
+		Security:    "tls",
+		SNI:         "example.com",
+		Host:        "example.com",
+		Remark:      "IPv6-VLESS",
+	}
+	url := vless.ToShareURL()
+	if !strings.Contains(url, "@[2606:4700::1]:443?") {
+		t.Fatalf("expected bracketed IPv6 in VLESS URL, got %s", url)
+	}
+
+	roundtrip, err := ParseProxyURL(url)
+	if err != nil {
+		t.Fatalf("ParseProxyURL failed on generated IPv6 URL: %v", err)
+	}
+	assertEqual(t, "Address", roundtrip.Address, "2606:4700::1")
+	assertEqual(t, "Port", itoa(roundtrip.Port), "443")
+
+	trojan := &VLESSConfig{
+		Protocol: "trojan",
+		Password: "secretpassword",
+		Address:  "2606:4700::2",
+		Port:     8443,
+		Network:  "ws",
+		Path:     "/tr",
+		Security: "tls",
+		SNI:      "example.com",
+		Host:     "example.com",
+		Remark:   "IPv6-Trojan",
+	}
+	trURL := trojan.ToShareURL()
+	if !strings.Contains(trURL, "@[2606:4700::2]:8443?") {
+		t.Fatalf("expected bracketed IPv6 in Trojan URL, got %s", trURL)
+	}
+	trRoundtrip, err := ParseProxyURL(trURL)
+	if err != nil {
+		t.Fatalf("ParseProxyURL failed on generated IPv6 Trojan URL: %v", err)
+	}
+	assertEqual(t, "Address", trRoundtrip.Address, "2606:4700::2")
+	assertEqual(t, "Port", itoa(trRoundtrip.Port), "8443")
+}
+
 func assertEqual(t *testing.T, field, got, want string) {
 	t.Helper()
 	if got != want {
