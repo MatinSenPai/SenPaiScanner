@@ -216,10 +216,10 @@ func buildStreamSettings(cfg *VLESSConfig) map[string]interface{} {
 		xhttp := map[string]interface{}{
 			"path": cfg.Path,
 		}
+		// Unlike ws, xray-core rejects Host inside xhttpSettings.headers;
+		// it only accepts the top-level "host" field.
 		if cfg.Host != "" {
-			xhttp["headers"] = map[string]interface{}{
-				"Host": cfg.Host,
-			}
+			xhttp["host"] = cfg.Host
 		}
 		if cfg.Mode != "" {
 			xhttp["mode"] = cfg.Mode
