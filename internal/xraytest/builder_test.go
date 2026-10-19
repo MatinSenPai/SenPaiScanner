@@ -1,8 +1,11 @@
 package xraytest
 
 import (
+	"bytes"
 	"encoding/json"
 	"testing"
+
+	"github.com/xtls/xray-core/infra/conf/serial"
 )
 
 func TestBuildXrayConfig_WS(t *testing.T) {
@@ -116,6 +119,55 @@ func TestBuildXrayConfig_GRPC(t *testing.T) {
 	}
 	if grpcSettings["multiMode"].(bool) != true {
 		t.Error("multiMode should be true")
+	}
+}
+
+func TestBuildXrayConfig_XHTTP(t *testing.T) {
+	cfg := &VLESSConfig{
+		UUID:        "12345678-1234-1234-1234-123456789abc",
+		Address:     "172.66.40.1",
+		Port:        443,
+		Encryption:  "none",
+		Network:     "xhttp",
+		Path:        "/download",
+		Host:        "example.com",
+		Mode:        "auto",
+		Security:    "tls",
+		SNI:         "example.com",
+		Fingerprint: "chrome",
+		ALPN:        []string{"h2", "http/1.1"},
+	}
+
+	configBytes, err := BuildXrayConfig(cfg, 10811)
+	if err != nil {
+		t.Fatalf("BuildXrayConfig failed: %v", err)
+	}
+
+	var parsed map[string]interface{}
+	if err := json.Unmarshal(configBytes, &parsed); err != nil {
+		t.Fatalf("output is not valid JSON: %v", err)
+	}
+
+	outbounds := parsed["outbounds"].([]interface{})
+	proxy := outbounds[0].(map[string]interface{})
+	stream := proxy["streamSettings"].(map[string]interface{})
+	xhttpSettings := stream["xhttpSettings"].(map[string]interface{})
+
+	// xray-core rejects Host inside xhttpSettings.headers; it must be the top-level "host" field.
+	if xhttpSettings["host"] != "example.com" {
+		t.Errorf("host: got %v, want example.com", xhttpSettings["host"])
+	}
+	if _, ok := xhttpSettings["headers"]; ok {
+		t.Errorf("headers must not be set, got %v", xhttpSettings["headers"])
+	}
+
+	// The runner hands this JSON to xray-core, so it must build there too.
+	jsonConfig, err := serial.DecodeJSONConfig(bytes.NewReader(configBytes))
+	if err != nil {
+		t.Fatalf("xray-core decode failed: %v", err)
+	}
+	if _, err := jsonConfig.Build(); err != nil {
+		t.Fatalf("xray-core build failed: %v", err)
 	}
 }
 
